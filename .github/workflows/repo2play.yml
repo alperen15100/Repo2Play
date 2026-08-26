@@ -1,4 +1,4 @@
-name: Repo2Play V9.1
+name: Repo2Play V9.2
 
 on:
   workflow_dispatch:
@@ -33,7 +33,7 @@ on:
 
 jobs:
   build:
-    name: Repo2Play V9.1 Live Policy Builder
+    name: Repo2Play V9.2
     runs-on: ubuntu-latest
 
     permissions:
@@ -43,7 +43,7 @@ jobs:
       - name: Checkout Repo2Play
         uses: actions/checkout@v4
 
-      - name: Checkout target Android project
+      - name: Checkout target repo
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.repository }}
@@ -51,7 +51,7 @@ jobs:
           path: target
           token: ${{ secrets.TARGET_REPO_TOKEN }}
 
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -66,7 +66,7 @@ jobs:
           POLICY="$GITHUB_WORKSPACE/policy/play-policy.json"
 
           if [ ! -f "$POLICY" ]; then
-            echo "ERROR: policy/play-policy.json missing."
+            echo "ERROR: policy/play-policy.json missing"
             exit 1
           fi
 
@@ -87,14 +87,6 @@ jobs:
           echo "required_target=$REQUIRED_TARGET" >> "$GITHUB_OUTPUT"
           echo "effective_date=$EFFECTIVE_DATE" >> "$GITHUB_OUTPUT"
 
-          echo "======================================"
-          echo "REPO2PLAY LIVE POLICY ENGINE"
-          echo "======================================"
-          echo "Policy Version : $POLICY_VERSION"
-          echo "Updated        : $UPDATED_AT"
-          echo "Required SDK   : $REQUIRED_TARGET"
-          echo "Effective      : $EFFECTIVE_DATE"
-
       - name: Locate Android project
         id: project
         shell: bash
@@ -108,15 +100,13 @@ jobs:
             | head -1)
 
           if [ -z "$SETTINGS" ]; then
-            echo "ERROR: Android Gradle project not found."
+            echo "ERROR: Android project not found"
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$SETTINGS")
 
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-
-          echo "Android project: $PROJECT_DIR"
 
       - name: Prepare Gradle
         id: gradle
@@ -145,10 +135,7 @@ jobs:
             VER=$(grep '^distributionUrl=' "$WRAPPER" \
               | sed -n 's/.*gradle-\([0-9.]*\)-.*/\1/p')
 
-            if [ -z "$VER" ]; then
-              echo "ERROR: Gradle version not detected."
-              exit 1
-            fi
+            test -n "$VER"
 
             curl -L \
               --retry 3 \
@@ -180,7 +167,7 @@ jobs:
             exit 0
           fi
 
-          echo "ERROR: Gradle unavailable."
+          echo "ERROR: Gradle unavailable"
           exit 1
 
       - name: Prepare reports
@@ -192,7 +179,7 @@ jobs:
           FIXLOG="$GITHUB_WORKSPACE/AUTO-FIX-REPORT.txt"
 
           {
-            echo "REPO2PLAY V9.1"
+            echo "REPO2PLAY V9.2"
             echo "==============="
             echo ""
             echo "Repository: ${{ inputs.repository }}"
@@ -210,7 +197,7 @@ jobs:
           } > "$REPORT"
 
           {
-            echo "REPO2PLAY V9.1 AUTO FIX"
+            echo "REPO2PLAY V9.2 AUTO FIX"
             echo "======================="
             echo ""
           } > "$FIXLOG"
@@ -305,7 +292,7 @@ jobs:
 
           cp -a "$PROJECT/." /tmp/repo2play-backup/
 
-      - name: Detect SDK levels
+      - name: Detect SDK
         id: sdk
         shell: bash
         run: |
@@ -333,9 +320,6 @@ jobs:
 
           echo "target=$TARGET" >> "$GITHUB_OUTPUT"
           echo "compile=$COMPILE" >> "$GITHUB_OUTPUT"
-
-          echo "Current targetSdk: ${TARGET:-unknown}"
-          echo "Current compileSdk: ${COMPILE:-unknown}"
 
       - name: Apply policy auto-fix
         if: ${{ inputs.auto_fix == 'YES' }}
@@ -401,10 +385,7 @@ jobs:
 
           GRADLE="${{ steps.gradle.outputs.cmd }}"
 
-          "$GRADLE" \
-            assembleRelease \
-            --stacktrace \
-            --no-daemon
+          "$GRADLE" assembleRelease --stacktrace --no-daemon
 
       - name: Resolve auto-fix
         if: ${{ inputs.auto_fix == 'YES' && steps.autofix.outputs.attempted == 'YES' }}
@@ -438,11 +419,8 @@ jobs:
 
           GRADLE="${{ steps.gradle.outputs.cmd }}"
 
-          "$GRADLE" \
-            lintRelease \
-            --no-daemon \
-            > "$GITHUB_WORKSPACE/LINT-REPORT.txt" \
-            2>&1
+          "$GRADLE" lintRelease --no-daemon \
+            > "$GITHUB_WORKSPACE/LINT-REPORT.txt" 2>&1
 
       - name: Play Store Doctor
         id: doctor
@@ -568,20 +546,6 @@ jobs:
             warn_check "MANAGE_EXTERNAL_STORAGE permission"
           fi
 
-          if grep -R -q \
-            'android.permission.REQUEST_INSTALL_PACKAGES' \
-            "$PROJECT" \
-            --include="AndroidManifest.xml"; then
-            warn_check "REQUEST_INSTALL_PACKAGES permission"
-          fi
-
-          if grep -R -q \
-            'android.permission.QUERY_ALL_PACKAGES' \
-            "$PROJECT" \
-            --include="AndroidManifest.xml"; then
-            warn_check "QUERY_ALL_PACKAGES permission"
-          fi
-
           EXPORTED=$(grep -Rho \
             'android:exported="true"' \
             "$PROJECT" \
@@ -664,71 +628,46 @@ jobs:
         run: |
           set -euo pipefail
 
-      - name: Force prepare final output
+          KEYSTORE="$GITHUB_WORKSPACE/repo2play-upload.jks"
+
+          if [ "${{ inputs.build_mode }}" = "UPDATE" ]; then
+            test -n "$APP_KEYSTORE_BASE64"
+
+            printf '%s' "$APP_KEYSTORE_BASE64" \
+              | base64 --decode \
+              > "$KEYSTORE"
+
+            test -s "$KEYSTORE"
+          else
+            keytool -genkeypair \
+              -keystore "$KEYSTORE" \
+              -storepass "$STORE_PASSWORD" \
+              -keypass "$KEY_PASSWORD" \
+              -alias "$KEY_ALIAS" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Repo2Play, OU=Android, O=Repo2Play, L=Unknown, S=Unknown, C=US"
+          fi
+
+          keytool -list \
+            -keystore "$KEYSTORE" \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            >/dev/null
+
+      - name: Build final APK
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          OUTPUT="$GITHUB_WORKSPACE/repo2play-output"
-          mkdir -p "$OUTPUT"
+          cd "${{ steps.project.outputs.project_dir }}"
 
-          echo "Searching final APK..."
-          APK=$(find "$GITHUB_WORKSPACE" \
-            -type f \
-            -name "*.apk" \
-            ! -path "*/intermediates/*" \
-            | grep -i release \
-            | head -1 || true)
+          GRADLE="${{ steps.gradle.outputs.cmd }}"
 
-          echo "Searching final AAB..."
-          AAB=$(find "$GITHUB_WORKSPACE" \
-            -type f \
-            -name "*.aab" \
-            ! -path "*/intermediates/*" \
-            | grep -i release \
-            | head -1 || true)
+          "$GRADLE" assembleRelease --stacktrace --no-daemon
 
-          echo "APK = $APK"
-          echo "AAB = $AAB"
-
-          if [ -z "$APK" ]; then
-            echo "ERROR: APK bulunamadi."
-            exit 1
-          fi
-
-          if [ -z "$AAB" ]; then
-            echo "ERROR: AAB bulunamadi."
-            exit 1
-          fi
-
-          cp "$APK" "$OUTPUT/app-release-final.apk"
-          cp "$AAB" "$OUTPUT/app-release-final.aab"
-
-          if [ -f "$GITHUB_WORKSPACE/PLAY-READINESS-REPORT.txt" ]; then
-            cp "$GITHUB_WORKSPACE/PLAY-READINESS-REPORT.txt" "$OUTPUT/"
-          fi
-
-          if [ -f "$GITHUB_WORKSPACE/AUTO-FIX-REPORT.txt" ]; then
-            cp "$GITHUB_WORKSPACE/AUTO-FIX-REPORT.txt" "$OUTPUT/"
-          fi
-
-          if [ -f "$GITHUB_WORKSPACE/BUNDLETOOL-VALIDATION.txt" ]; then
-            cp "$GITHUB_WORKSPACE/BUNDLETOOL-VALIDATION.txt" "$OUTPUT/"
-          fi
-
-          if [ -f "$GITHUB_WORKSPACE/LINT-REPORT.txt" ]; then
-            cp "$GITHUB_WORKSPACE/LINT-REPORT.txt" "$OUTPUT/"
-          fi
-
-          echo "======================================"
-          echo "FINAL OUTPUT"
-          echo "======================================"
-          ls -lah "$OUTPUT"
-
-      - name: Upload APK AAB package
-        uses: actions/upload-artifact@v4
-        with:
-          name: Repo2Play-V9.1-${{ inputs.build_mode }}-Output
-          path: ${{ github.workspace }}/repo2play-output/
-          if-no-files-found: error
-          retention-days: 7
+      - name: Build final AAB
+        shell: bash
+        run: |
+    
