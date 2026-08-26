@@ -31,18 +31,8 @@ jobs:
       contents: read
 
     steps:
-
-      # ============================================================
-      # 1 - CHECKOUT REPO2PLAY
-      # ============================================================
-
       - name: Checkout Repo2Play
         uses: actions/checkout@v4
-
-
-      # ============================================================
-      # 2 - CHECKOUT TARGET ANDROID PROJECT
-      # ============================================================
 
       - name: Checkout target Android project
         uses: actions/checkout@v4
@@ -52,21 +42,11 @@ jobs:
           path: target
           token: ${{ secrets.TARGET_REPO_TOKEN }}
 
-
-      # ============================================================
-      # 3 - JAVA
-      # ============================================================
-
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-
-
-      # ============================================================
-      # 4 - LOCATE ANDROID PROJECT
-      # ============================================================
 
       - name: Locate Android project
         id: project
@@ -96,11 +76,6 @@ jobs:
           echo "Project    : $PROJECT_DIR"
           echo "======================================"
 
-
-      # ============================================================
-      # 5 - PREPARE GRADLE
-      # ============================================================
-
       - name: Prepare Gradle engine
         id: gradle
         shell: bash
@@ -124,7 +99,6 @@ jobs:
             | head -1)
 
           if [ -n "$WRAPPER_PROPERTIES" ]; then
-
             DISTRIBUTION_URL=$(grep "^distributionUrl=" \
               "$WRAPPER_PROPERTIES" \
               | cut -d= -f2- \
@@ -168,7 +142,6 @@ jobs:
           fi
 
           if command -v gradle >/dev/null 2>&1; then
-
             echo "gradle_command=gradle" >> "$GITHUB_OUTPUT"
             echo "gradle_mode=system" >> "$GITHUB_OUTPUT"
 
@@ -178,11 +151,6 @@ jobs:
 
           echo "ERROR: Gradle unavailable."
           exit 1
-
-
-      # ============================================================
-      # 6 - PREPARE REPORT
-      # ============================================================
 
       - name: Prepare report
         shell: bash
@@ -199,11 +167,6 @@ jobs:
             echo "Gradle     : ${{ steps.gradle.outputs.gradle_mode }}"
             echo ""
           } > "$REPORT"
-
-
-      # ============================================================
-      # 7 - VERSION MANAGEMENT
-      # ============================================================
 
       - name: Detect and update version
         shell: bash
@@ -250,7 +213,6 @@ jobs:
           if [ "${{ inputs.build_mode }}" = "UPDATE" ]; then
 
             if [ -n "$OLD_VERSION_CODE" ] && [ -n "$VERSION_FILE" ]; then
-
               NEW_VERSION_CODE=$((OLD_VERSION_CODE + 1))
 
               sed -i -E \
@@ -258,19 +220,16 @@ jobs:
                 "$VERSION_FILE"
 
               echo "versionCode: $OLD_VERSION_CODE -> $NEW_VERSION_CODE"
-
             else
               echo "WARNING: versionCode not detected."
             fi
 
             if [ -n "$OLD_VERSION_NAME" ] && [ -n "$VERSION_NAME_FILE" ]; then
-
               NEW_VERSION_NAME=$(python3 -c \
                 'import sys; p=sys.argv[1].split("."); p[-1]=str(int(p[-1])+1) if p[-1].isdigit() else p[-1]; print(".".join(p))' \
                 "$OLD_VERSION_NAME")
 
               if [ "$NEW_VERSION_NAME" != "$OLD_VERSION_NAME" ]; then
-
                 sed -i \
                   "0,/versionName = \"${OLD_VERSION_NAME}\"/s//versionName = \"${NEW_VERSION_NAME}\"/" \
                   "$VERSION_NAME_FILE"
@@ -280,11 +239,9 @@ jobs:
                   "$VERSION_NAME_FILE"
 
                 echo "versionName: $OLD_VERSION_NAME -> $NEW_VERSION_NAME"
-
               else
                 echo "WARNING: versionName could not be increased."
               fi
-
             else
               echo "WARNING: versionName not detected."
             fi
@@ -302,11 +259,6 @@ jobs:
             echo "New versionName: ${NEW_VERSION_NAME:-unchanged}"
             echo ""
           } >> "$REPORT"
-
-
-      # ============================================================
-      # 8 - PLAY STORE DOCTOR
-      # ============================================================
 
       - name: Play Store Doctor scan
         id: doctor
@@ -357,9 +309,7 @@ jobs:
             "$PROJECT_DIR" \
             --include="*.gradle" \
             --include="*.gradle.kts"; then
-
             pass_check "Android application plugin detected"
-
           else
             block_check "Android application plugin missing"
           fi
@@ -374,21 +324,13 @@ jobs:
             | head -1 || true)
 
           if [ -z "$TARGET_SDK" ]; then
-
             block_check "targetSdk not detected"
-
           elif [ "$TARGET_SDK" -ge 36 ]; then
-
             pass_check "targetSdk $TARGET_SDK"
-
           elif [ "$TARGET_SDK" -eq 35 ]; then
-
             block_check "targetSdk 35 - update to API 36 for current Google Play requirements"
-
           else
-
             block_check "targetSdk $TARGET_SDK is too low"
-
           fi
 
           MIN_SDK=$(grep -RhoE \
@@ -410,9 +352,7 @@ jobs:
             'android:debuggable="true"' \
             "$PROJECT_DIR" \
             --include="AndroidManifest.xml"; then
-
             block_check "debuggable=true detected"
-
           else
             pass_check "No explicit debuggable=true"
           fi
@@ -421,9 +361,7 @@ jobs:
             'android:usesCleartextTraffic="true"' \
             "$PROJECT_DIR" \
             --include="AndroidManifest.xml"; then
-
             warn_check "usesCleartextTraffic=true"
-
           else
             pass_check "No explicit cleartext traffic enablement"
           fi
@@ -432,9 +370,7 @@ jobs:
             'android:allowBackup="true"' \
             "$PROJECT_DIR" \
             --include="AndroidManifest.xml"; then
-
             warn_check "allowBackup=true"
-
           else
             pass_check "No explicit allowBackup=true"
           fi
@@ -443,7 +379,6 @@ jobs:
             'android.permission.MANAGE_EXTERNAL_STORAGE' \
             "$PROJECT_DIR" \
             --include="AndroidManifest.xml"; then
-
             warn_check "MANAGE_EXTERNAL_STORAGE permission detected"
           fi
 
@@ -451,7 +386,6 @@ jobs:
             'android.permission.REQUEST_INSTALL_PACKAGES' \
             "$PROJECT_DIR" \
             --include="AndroidManifest.xml"; then
-
             warn_check "REQUEST_INSTALL_PACKAGES permission detected"
           fi
 
@@ -459,7 +393,6 @@ jobs:
             'android.permission.QUERY_ALL_PACKAGES' \
             "$PROJECT_DIR" \
             --include="AndroidManifest.xml"; then
-
             warn_check "QUERY_ALL_PACKAGES permission detected"
           fi
 
@@ -467,7 +400,6 @@ jobs:
             'android.permission.ACCESS_FINE_LOCATION' \
             "$PROJECT_DIR" \
             --include="AndroidManifest.xml"; then
-
             warn_check "Precise location permission detected"
           fi
 
@@ -475,7 +407,6 @@ jobs:
             'android.permission.ACCESS_BACKGROUND_LOCATION' \
             "$PROJECT_DIR" \
             --include="AndroidManifest.xml"; then
-
             warn_check "Background location permission detected"
           fi
 
@@ -483,7 +414,6 @@ jobs:
             'android.permission.CAMERA' \
             "$PROJECT_DIR" \
             --include="AndroidManifest.xml"; then
-
             warn_check "Camera permission detected"
           fi
 
@@ -491,7 +421,6 @@ jobs:
             'android.permission.RECORD_AUDIO' \
             "$PROJECT_DIR" \
             --include="AndroidManifest.xml"; then
-
             warn_check "Microphone permission detected"
           fi
 
@@ -502,9 +431,7 @@ jobs:
             | wc -l)
 
           if [ "$EXPORTED_COUNT" -gt 0 ]; then
-
             warn_check "$EXPORTED_COUNT exported component(s) detected"
-
           else
             pass_check "No explicit exported=true components"
           fi
@@ -519,9 +446,7 @@ jobs:
             | head -1)
 
           if [ -n "$ADAPTIVE_ICON" ]; then
-
             pass_check "Adaptive launcher icon detected"
-
           else
             warn_check "Adaptive launcher icon not detected"
           fi
@@ -536,9 +461,7 @@ jobs:
           fi
 
           if [ -n "$LABEL_PRESENT" ]; then
-
             pass_check "Application label detected"
-
           else
             warn_check "Application label not detected in main manifest"
           fi
@@ -549,11 +472,8 @@ jobs:
             | head -1)
 
           if [ -z "$NATIVE_LIBS" ]; then
-
             pass_check "No bundled native .so libraries detected"
-
           else
-
             ARM64=$(find "$PROJECT_DIR" \
               -type f \
               -path "*arm64-v8a*" \
@@ -561,11 +481,8 @@ jobs:
               | head -1)
 
             if [ -n "$ARM64" ]; then
-
               pass_check "arm64-v8a native library detected"
-
             else
-
               block_check "Native libraries detected but arm64-v8a not found"
             fi
           fi
@@ -602,18 +519,12 @@ jobs:
           echo "blockers=$BLOCKERS" >> "$GITHUB_OUTPUT"
           echo "warnings=$WARNINGS" >> "$GITHUB_OUTPUT"
 
-
-      # ============================================================
-      # 9 - PREPARE SIGNING KEY
-      # ============================================================
-
       - name: Prepare signing key
         shell: bash
         run: |
           KEYSTORE="$GITHUB_WORKSPACE/repo2play-upload.jks"
 
           if [ "${{ inputs.build_mode }}" = "UPDATE" ]; then
-
             echo "UPDATE mode: restoring existing signing key."
 
             if [ -z "${{ secrets.APP_KEYSTORE_BASE64 }}" ]; then
@@ -629,9 +540,7 @@ jobs:
               echo "ERROR: Restored keystore is empty."
               exit 1
             fi
-
           else
-
             echo "NEW mode: creating new signing key."
 
             keytool -genkeypair \
@@ -654,11 +563,6 @@ jobs:
 
           echo "Signing key ready."
 
-
-      # ============================================================
-      # 10 - BUILD APK
-      # ============================================================
-
       - name: Build Release APK
         shell: bash
         run: |
@@ -670,11 +574,6 @@ jobs:
             assembleRelease \
             --stacktrace \
             --no-daemon
-
-
-      # ============================================================
-      # 11 - BUILD AAB
-      # ============================================================
 
       - name: Build Release AAB
         shell: bash
@@ -688,5 +587,72 @@ jobs:
             --stacktrace \
             --no-daemon
 
+      - name: Locate Release APK
+        id: apk
+        shell: bash
+        run: |
+          APK=$(find target \
+            -type f \
+            -name "*.apk" \
+            ! -path "*/intermediates/*" \
+            ! -path "*/androidTest/*" \
+            | grep -i release \
+            | head -1)
 
-      # ===============================
+          if [ -z "$APK" ]; then
+            echo "ERROR: Release APK not found."
+            exit 1
+          fi
+
+          echo "apk=$APK" >> "$GITHUB_OUTPUT"
+          echo "APK: $APK"
+
+      - name: Locate Release AAB
+        id: aab
+        shell: bash
+        run: |
+          AAB=$(find target \
+            -type f \
+            -name "*.aab" \
+            ! -path "*/intermediates/*" \
+            | grep -i release \
+            | head -1)
+
+          if [ -z "$AAB" ]; then
+            echo "ERROR: Release AAB not found."
+            exit 1
+          fi
+
+          echo "aab=$AAB" >> "$GITHUB_OUTPUT"
+          echo "AAB: $AAB"
+
+      - name: Sign and verify APK
+        shell: bash
+        run: |
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* \
+            | sort -V \
+            | tail -1)
+
+          ZIPALIGN="$BUILD_TOOLS/zipalign"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+
+          "$ZIPALIGN" \
+            -f \
+            4 \
+            "${{ steps.apk.outputs.apk }}" \
+            "$GITHUB_WORKSPACE/app-release-aligned.apk"
+
+          "$APKSIGNER" sign \
+            --ks "$GITHUB_WORKSPACE/repo2play-upload.jks" \
+            --ks-key-alias "${{ secrets.SIGNING_KEY_ALIAS }}" \
+            --ks-pass pass:"${{ secrets.SIGNING_STORE_PASSWORD }}" \
+            --key-pass pass:"${{ secrets.SIGNING_KEY_PASSWORD }}" \
+            --out "$GITHUB_WORKSPACE/app-release-signed.apk" \
+            "$GITHUB_WORKSPACE/app-release-aligned.apk"
+
+          "$APKSIGNER" verify \
+            --verbose \
+            --print-certs \
+            "$GITHUB_WORKSPACE/app-release-signed.apk"
+
+          echo "APK signed
