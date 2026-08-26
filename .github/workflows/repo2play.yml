@@ -7,6 +7,7 @@ on:
         description: "Android GitHub repository (owner/repo)"
         required: true
         default: "alperen15100/tracear-android"
+
       branch:
         description: "Branch"
         required: true
@@ -21,9 +22,12 @@ jobs:
       contents: read
 
     steps:
+      # 1) Repo2Play reposunun kendisini al
       - name: Checkout Repo2Play
         uses: actions/checkout@v4
 
+      # 2) Hedef Android reposunu al
+      # Private repo olduğu için TARGET_REPO_TOKEN kullanıyoruz
       - name: Checkout target Android project
         uses: actions/checkout@v4
         with:
@@ -32,19 +36,24 @@ jobs:
           path: target
           token: ${{ secrets.TARGET_REPO_TOKEN }}
 
+      # 3) Java kur
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
+      # 4) Projeyi temel seviyede analiz et
       - name: Analyze project
         shell: bash
         run: |
-          cd target
+          echo "======================================"
+          echo "          REPO2PLAY V2"
+          echo "======================================"
+          echo ""
 
+          REPORT="REPORT.txt"
           SCORE=0
-          REPORT="../REPORT.txt"
 
           echo "Repo2Play V2 Report" > "$REPORT"
           echo "===================" >> "$REPORT"
@@ -53,80 +62,82 @@ jobs:
           echo "Branch: ${{ inputs.branch }}" >> "$REPORT"
           echo "" >> "$REPORT"
 
-          if [ -f "gradlew" ]; then
-            echo "✓ Gradle Wrapper detected"
-            echo "✓ Gradle Wrapper detected" >> "$REPORT"
-            SCORE=$((SCORE + 15))
+          echo "Scanning Android project..."
+
+          # Gradle wrapper var mı?
+          GRADLEW=$(find target -type f -name gradlew | head -1)
+
+          if [ -n "$GRADLEW" ]; then
+            echo "✓ Gradle Wrapper detected: $GRADLEW"
+            echo "✓ Gradle Wrapper detected: $GRADLEW" >> "$REPORT"
+            SCORE=$((SCORE + 20))
           else
             echo "✗ Gradle Wrapper missing"
             echo "✗ Gradle Wrapper missing" >> "$REPORT"
           fi
 
-          if [ -f "settings.gradle" ] || [ -f "settings.gradle.kts" ]; then
-            echo "✓ Gradle settings detected"
-            echo "✓ Gradle settings detected" >> "$REPORT"
-            SCORE=$((SCORE + 15))
-          else
-            echo "⚠ Gradle settings not found"
-            echo "⚠ Gradle settings not found" >> "$REPORT"
-          fi
+          # AndroidManifest bul
+          MANIFEST=$(find target -type f -path "*/src/main/AndroidManifest.xml" | head -1)
 
-          if [ -f "app/build.gradle" ] || [ -f "app/build.gradle.kts" ]; then
-            echo "✓ App module detected"
-            echo "✓ App module detected" >> "$REPORT"
-            SCORE=$((SCORE + 15))
-          else
-            echo "⚠ Standard app module not found"
-            echo "⚠ Standard app module not found" >> "$REPORT"
-          fi
-
-          if [ -f "app/src/main/AndroidManifest.xml" ]; then
-            echo "✓ AndroidManifest detected"
-            echo "✓ AndroidManifest detected" >> "$REPORT"
-            SCORE=$((SCORE + 15))
+          if [ -n "$MANIFEST" ]; then
+            echo "✓ AndroidManifest detected: $MANIFEST"
+            echo "✓ AndroidManifest detected: $MANIFEST" >> "$REPORT"
+            SCORE=$((SCORE + 20))
 
             echo "" >> "$REPORT"
             echo "Permissions:" >> "$REPORT"
-            grep -o 'android.permission.[A-Za-z0-9_]*' \
-              app/src/main/AndroidManifest.xml | sort -u >> "$REPORT" || true
+
+            grep -o 'android.permission.[A-Za-z0-9_]*' "$MANIFEST" \
+              | sort -u >> "$REPORT" || true
           else
             echo "⚠ AndroidManifest not found"
             echo "⚠ AndroidManifest not found" >> "$REPORT"
           fi
 
-          if grep -R -q "com.android.application" . \
+          # Android application plugin kontrolü
+          if grep -R -q "com.android.application" target \
             --include="*.gradle" --include="*.gradle.kts"; then
             echo "✓ Android application plugin detected"
             echo "✓ Android application plugin detected" >> "$REPORT"
-            SCORE=$((SCORE + 15))
+            SCORE=$((SCORE + 20))
           else
             echo "⚠ Android application plugin not detected"
             echo "⚠ Android application plugin not detected" >> "$REPORT"
           fi
 
-          TARGET_SDK=$(grep -RhoE 'targetSdk(Versi(on)?)?[[:space:]=("]*[0-9]+' . \
-            --include="*.gradle" --include="*.gradle.kts" | \
-            grep -oE '[0-9]+' | sort -nr | head -1 || true)
+          # targetSdk bulmaya çalış
+          TARGET_SDK=$(grep -RhoE \
+            'targetSdk(Versi(on)?)?[[:space:]=("]*[0-9]+' \
+            target \
+            --include="*.gradle" \
+            --include="*.gradle.kts" \
+            | grep -oE '[0-9]+' \
+            | sort -nr \
+            | head -1 || true)
 
           if [ -n "$TARGET_SDK" ]; then
             echo "Target SDK: $TARGET_SDK"
             echo "Target SDK: $TARGET_SDK" >> "$REPORT"
 
             if [ "$TARGET_SDK" -ge 35 ]; then
-              SCORE=$((SCORE + 15))
+              SCORE=$((SCORE + 20))
             fi
           else
             echo "Target SDK: not detected"
             echo "Target SDK: not detected" >> "$REPORT"
           fi
 
-          DEBUGGABLE=$(grep -R "debuggable[[:space:]]*=[[:space:]]*true" . \
-            --include="AndroidManifest.xml" | head -1 || true)
+          # Debuggable true var mı?
+          DEBUGGABLE=$(grep -R \
+            'android:debuggable="true"' \
+            target \
+            --include="AndroidManifest.xml" \
+            | head -1 || true)
 
           if [ -z "$DEBUGGABLE" ]; then
             echo "✓ No explicit debuggable=true found"
             echo "✓ No explicit debuggable=true found" >> "$REPORT"
-            SCORE=$((SCORE + 10))
+            SCORE=$((SCORE + 20))
           else
             echo "⚠ debuggable=true detected"
             echo "⚠ debuggable=true detected" >> "$REPORT"
@@ -137,40 +148,90 @@ jobs:
 
           echo "READINESS_SCORE=$SCORE" >> "$GITHUB_ENV"
 
-      - name: Prepare Gradle
-        working-directory: target
+      # 5) gradlew hangi klasördeyse otomatik bul
+      - name: Locate Gradle project
+        id: gradle
         shell: bash
         run: |
-          chmod +x ./gradlew
+          echo "Searching for gradlew..."
+
+          GRADLEW=$(find target -type f -name gradlew | head -1)
+
+          if [ -z "$GRADLEW" ]; then
+            echo "❌ gradlew bulunamadı"
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$GRADLEW")
+
+          echo "✓ Gradle project found:"
+          echo "$PROJECT_DIR"
+
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+          chmod +x "$GRADLEW"
+
+          cd "$PROJECT_DIR"
           ./gradlew --version
 
+      # 6) APK build et
       - name: Build Release APK
         id: apk
-        working-directory: target
         continue-on-error: true
         shell: bash
         run: |
+          cd "${{ steps.gradle.outputs.project_dir }}"
+
+          echo "Building Release APK..."
+
           ./gradlew assembleRelease --stacktrace
 
+      # 7) AAB build et
       - name: Build Release AAB
         id: aab
-        working-directory: target
         continue-on-error: true
         shell: bash
         run: |
+          cd "${{ steps.gradle.outputs.project_dir }}"
+
+          echo "Building Release AAB..."
+
           ./gradlew bundleRelease --stacktrace
 
+      # 8) Çıkan APK ve AAB dosyalarını topla
       - name: Collect final outputs
         shell: bash
         run: |
           mkdir -p repo2play-output
 
-          find target -type f -name "*.apk" \
+          echo "Searching APK files..."
+
+          find target \
+            -type f \
+            -name "*.apk" \
             ! -path "*/intermediates/*" \
-            ! -path "*/outputs/apk/debug/*" \
+            ! -path "*/debug/*" \
+            -print
+
+          find target \
+            -type f \
+            -name "*.apk" \
+            ! -path "*/intermediates/*" \
+            ! -path "*/debug/*" \
             -exec cp {} repo2play-output/ \; || true
 
-          find target -type f -name "*.aab" \
+          echo ""
+          echo "Searching AAB files..."
+
+          find target \
+            -type f \
+            -name "*.aab" \
+            ! -path "*/intermediates/*" \
+            -print
+
+          find target \
+            -type f \
+            -name "*.aab" \
             ! -path "*/intermediates/*" \
             -exec cp {} repo2play-output/ \; || true
 
@@ -183,12 +244,13 @@ jobs:
             echo ""
             echo "Build Results"
             echo "============="
-            echo "APK build: ${{ steps.apk.outcome }}"
-            echo "AAB build: ${{ steps.aab.outcome }}"
-            echo "APK files: $APK_COUNT"
-            echo "AAB files: $AAB_COUNT"
+            echo "APK build result: ${{ steps.apk.outcome }}"
+            echo "AAB build result: ${{ steps.aab.outcome }}"
+            echo "APK files found: $APK_COUNT"
+            echo "AAB files found: $AAB_COUNT"
           } >> repo2play-output/REPORT.txt
 
+      # 9) Artifact olarak GitHub'dan indirilebilir yap
       - name: Upload Repo2Play package
         uses: actions/upload-artifact@v4
         with:
