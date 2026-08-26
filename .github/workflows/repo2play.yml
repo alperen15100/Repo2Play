@@ -203,8 +203,6 @@ jobs:
 
           if [ "${{ inputs.build_mode }}" = "UPDATE" ]; then
 
-            echo "UPDATE mode aktif."
-
             if [ -n "$OLD_VERSION_CODE" ] && [ -n "$VERSION_FILE" ]; then
               NEW_VERSION_CODE=$((OLD_VERSION_CODE + 1))
 
@@ -214,51 +212,36 @@ jobs:
 
               echo "✅ versionCode: $OLD_VERSION_CODE -> $NEW_VERSION_CODE"
             else
-              echo "⚠ versionCode otomatik bulunamadi."
+              echo "⚠ versionCode otomatik bulunamadi"
             fi
 
             if [ -n "$OLD_VERSION_NAME" ] && [ -n "$VERSION_NAME_FILE" ]; then
-              NEW_VERSION_NAME=$(python3 - "$OLD_VERSION_NAME" <<'PY'
-import sys
 
-v = sys.argv[1]
-parts = v.split(".")
-
-if parts and parts[-1].isdigit():
-    parts[-1] = str(int(parts[-1]) + 1)
-    print(".".join(parts))
-else:
-    print(v)
-PY
-)
+              NEW_VERSION_NAME=$(python3 -c \
+                'import sys; p=sys.argv[1].split("."); p[-1]=str(int(p[-1])+1) if p[-1].isdigit() else p[-1]; print(".".join(p))' \
+                "$OLD_VERSION_NAME")
 
               if [ "$NEW_VERSION_NAME" != "$OLD_VERSION_NAME" ]; then
-                python3 - "$VERSION_NAME_FILE" "$OLD_VERSION_NAME" "$NEW_VERSION_NAME" <<'PY'
-import sys
-from pathlib import Path
 
-path = Path(sys.argv[1])
-old = sys.argv[2]
-new = sys.argv[3]
+                sed -i \
+                  "0,/versionName = \"${OLD_VERSION_NAME}\"/s//versionName = \"${NEW_VERSION_NAME}\"/" \
+                  "$VERSION_NAME_FILE"
 
-text = path.read_text()
-
-text = text.replace(f'versionName = "{old}"', f'versionName = "{new}"', 1)
-text = text.replace(f'versionName "{old}"', f'versionName "{new}"', 1)
-
-path.write_text(text)
-PY
+                sed -i \
+                  "0,/versionName \"${OLD_VERSION_NAME}\"/s//versionName \"${NEW_VERSION_NAME}\"/" \
+                  "$VERSION_NAME_FILE"
 
                 echo "✅ versionName: $OLD_VERSION_NAME -> $NEW_VERSION_NAME"
               else
-                echo "⚠ versionName otomatik arttirilamadi: $OLD_VERSION_NAME"
+                echo "⚠ versionName otomatik arttirilamadi"
               fi
+
             else
-              echo "⚠ versionName otomatik bulunamadi."
+              echo "⚠ versionName otomatik bulunamadi"
             fi
 
           else
-            echo "NEW mode: version bilgisi degistirilmiyor."
+            echo "NEW mode - version degistirilmiyor"
           fi
 
           {
@@ -351,6 +334,8 @@ PY
 
           if [ "${{ inputs.build_mode }}" = "UPDATE" ]; then
 
+            echo "Using existing signing key."
+
             if [ -z "${{ secrets.APP_KEYSTORE_BASE64 }}" ]; then
               echo "❌ APP_KEYSTORE_BASE64 secret bulunamadi."
               exit 1
@@ -366,6 +351,8 @@ PY
             fi
 
           else
+
+            echo "Creating new signing key."
 
             keytool -genkeypair \
               -v \
@@ -391,6 +378,7 @@ PY
         shell: bash
         run: |
           cd "${{ steps.project.outputs.project_dir }}"
+
           GRADLE="${{ steps.gradle.outputs.gradle_command }}"
 
           "$GRADLE" \
@@ -402,6 +390,7 @@ PY
         shell: bash
         run: |
           cd "${{ steps.project.outputs.project_dir }}"
+
           GRADLE="${{ steps.gradle.outputs.gradle_command }}"
 
           "$GRADLE" \
@@ -478,6 +467,8 @@ PY
             --print-certs \
             "$GITHUB_WORKSPACE/app-release-signed.apk"
 
+          echo "✅ APK signed and verified."
+
       - name: Sign and verify AAB
         shell: bash
         run: |
@@ -498,6 +489,8 @@ PY
           jarsigner \
             -verify \
             "$GITHUB_WORKSPACE/app-release-signed.aab"
+
+          echo "✅ AAB signed and verified."
 
       - name: Read final package information
         shell: bash
