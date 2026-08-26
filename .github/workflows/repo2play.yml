@@ -1,0 +1,174 @@
+name: Repo2Play V1
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: "Android GitHub repository (owner/repo)"
+        required: true
+        default: "alperen15100/tracear-android"
+      branch:
+        description: "Branch"
+        required: true
+        default: "main"
+
+jobs:
+  build:
+    name: Analyze and Build Android
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Repo2Play
+        uses: actions/checkout@v4
+
+      - name: Checkout target Android project
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.branch }}
+          path: target
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Analyze project
+        shell: bash
+        run: |
+          echo "======================================"
+          echo "          REPO2PLAY V1"
+          echo "======================================"
+          echo ""
+          echo "Target: ${{ inputs.repository }}"
+          echo "Branch: ${{ inputs.branch }}"
+          echo ""
+
+          cd target
+
+          SCORE=0
+
+          if [ -f "gradlew" ]; then
+            echo "✓ Gradle Wrapper detected"
+            SCORE=$((SCORE + 20))
+          else
+            echo "✗ Gradle Wrapper missing"
+          fi
+
+          if [ -f "settings.gradle" ] || [ -f "settings.gradle.kts" ]; then
+            echo "✓ Android/Gradle settings detected"
+            SCORE=$((SCORE + 20))
+          else
+            echo "⚠ settings.gradle not found"
+          fi
+
+          if [ -f "app/build.gradle" ] || [ -f "app/build.gradle.kts" ]; then
+            echo "✓ App module detected"
+            SCORE=$((SCORE + 20))
+          else
+            echo "⚠ Standard app module not found"
+          fi
+
+          if [ -f "app/src/main/AndroidManifest.xml" ]; then
+            echo "✓ AndroidManifest detected"
+            SCORE=$((SCORE + 20))
+
+            echo ""
+            echo "Permissions:"
+            grep -o 'android.permission.[A-Za-z0-9_]*' \
+              app/src/main/AndroidManifest.xml | sort -u || true
+          else
+            echo "⚠ AndroidManifest not found"
+          fi
+
+          if grep -R -q "com.android.application" . \
+            --include="*.gradle" --include="*.gradle.kts"; then
+            echo "✓ Android application plugin detected"
+            SCORE=$((SCORE + 20))
+          else
+            echo "⚠ Android application plugin not detected"
+          fi
+
+          echo ""
+          echo "--------------------------------------"
+          echo "INITIAL READINESS SCORE: $SCORE/100"
+          echo "--------------------------------------"
+
+          echo "READINESS_SCORE=$SCORE" >> "$GITHUB_ENV"
+
+      - name: Prepare Gradle
+        working-directory: target
+        shell: bash
+        run: |
+          if [ ! -f "./gradlew" ]; then
+            echo "Gradle wrapper is missing."
+            exit 1
+          fi
+
+          chmod +x ./gradlew
+          ./gradlew --version
+
+      - name: Build Release APK
+        id: apk
+        working-directory: target
+        continue-on-error: true
+        shell: bash
+        run: |
+          ./gradlew assembleRelease --stacktrace
+
+      - name: Build Release AAB
+        id: aab
+        working-directory: target
+        continue-on-error: true
+        shell: bash
+        run: |
+          ./gradlew bundleRelease --stacktrace
+
+      - name: Find build outputs
+        shell: bash
+        run: |
+          mkdir -p repo2play-output
+
+          echo "======================================"
+          echo "BUILD RESULTS"
+          echo "======================================"
+
+          APK_COUNT=$(find target -type f -name "*.apk" | wc -l)
+          AAB_COUNT=$(find target -type f -name "*.aab" | wc -l)
+
+          echo "APK files found: $APK_COUNT"
+          echo "AAB files found: $AAB_COUNT"
+
+          find target -type f -name "*.apk" -print || true
+          find target -type f -name "*.aab" -print || true
+
+          find target -type f -name "*.apk" \
+            -exec cp {} repo2play-output/ \; || true
+
+          find target -type f -name "*.aab" \
+            -exec cp {} repo2play-output/ \; || true
+
+          {
+            echo "Repo2Play V1 Report"
+            echo "==================="
+            echo ""
+            echo "Repository: ${{ inputs.repository }}"
+            echo "Branch: ${{ inputs.branch }}"
+            echo "Initial readiness: ${READINESS_SCORE}/100"
+            echo "APK build result: ${{ steps.apk.outcome }}"
+            echo "AAB build result: ${{ steps.aab.outcome }}"
+            echo "APK files: $APK_COUNT"
+            echo "AAB files: $AAB_COUNT"
+          } > repo2play-output/REPORT.txt
+
+      - name: Upload Repo2Play package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Repo2Play-Output
+          path: repo2play-output/
+          if-no-files-found: error
