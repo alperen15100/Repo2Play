@@ -663,3 +663,72 @@ jobs:
           APP_KEYSTORE_BASE64: ${{ secrets.APP_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
+
+      - name: Force prepare final output
+        shell: bash
+        run: |
+          set -e
+
+          OUTPUT="$GITHUB_WORKSPACE/repo2play-output"
+          mkdir -p "$OUTPUT"
+
+          echo "Searching final APK..."
+          APK=$(find "$GITHUB_WORKSPACE" \
+            -type f \
+            -name "*.apk" \
+            ! -path "*/intermediates/*" \
+            | grep -i release \
+            | head -1 || true)
+
+          echo "Searching final AAB..."
+          AAB=$(find "$GITHUB_WORKSPACE" \
+            -type f \
+            -name "*.aab" \
+            ! -path "*/intermediates/*" \
+            | grep -i release \
+            | head -1 || true)
+
+          echo "APK = $APK"
+          echo "AAB = $AAB"
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK bulunamadi."
+            exit 1
+          fi
+
+          if [ -z "$AAB" ]; then
+            echo "ERROR: AAB bulunamadi."
+            exit 1
+          fi
+
+          cp "$APK" "$OUTPUT/app-release-final.apk"
+          cp "$AAB" "$OUTPUT/app-release-final.aab"
+
+          if [ -f "$GITHUB_WORKSPACE/PLAY-READINESS-REPORT.txt" ]; then
+            cp "$GITHUB_WORKSPACE/PLAY-READINESS-REPORT.txt" "$OUTPUT/"
+          fi
+
+          if [ -f "$GITHUB_WORKSPACE/AUTO-FIX-REPORT.txt" ]; then
+            cp "$GITHUB_WORKSPACE/AUTO-FIX-REPORT.txt" "$OUTPUT/"
+          fi
+
+          if [ -f "$GITHUB_WORKSPACE/BUNDLETOOL-VALIDATION.txt" ]; then
+            cp "$GITHUB_WORKSPACE/BUNDLETOOL-VALIDATION.txt" "$OUTPUT/"
+          fi
+
+          if [ -f "$GITHUB_WORKSPACE/LINT-REPORT.txt" ]; then
+            cp "$GITHUB_WORKSPACE/LINT-REPORT.txt" "$OUTPUT/"
+          fi
+
+          echo "======================================"
+          echo "FINAL OUTPUT"
+          echo "======================================"
+          ls -lah "$OUTPUT"
+
+      - name: Upload APK AAB package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Repo2Play-V9.1-${{ inputs.build_mode }}-Output
+          path: ${{ github.workspace }}/repo2play-output/
+          if-no-files-found: error
+          retention-days: 7
