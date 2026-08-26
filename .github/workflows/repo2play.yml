@@ -1,10 +1,10 @@
-name: Repo2Play V4
+name: Repo2Play V5
 
 on:
   workflow_dispatch:
     inputs:
       repository:
-        description: "Android GitHub repository (owner/repo)"
+        description: "Android repository (owner/repo)"
         required: true
         default: "alperen15100/Nur-widgets"
 
@@ -13,9 +13,18 @@ on:
         required: true
         default: "main"
 
+      build_mode:
+        description: "NEW = first release / UPDATE = existing app"
+        required: true
+        type: choice
+        options:
+          - NEW
+          - UPDATE
+        default: NEW
+
 jobs:
   build:
-    name: Repo2Play Signed Android Builder
+    name: Repo2Play V5 Builder
     runs-on: ubuntu-latest
 
     permissions:
@@ -23,8 +32,16 @@ jobs:
 
     steps:
 
+      # ============================================================
+      # 1 - REPO2PLAY
+      # ============================================================
+
       - name: Checkout Repo2Play
         uses: actions/checkout@v4
+
+      # ============================================================
+      # 2 - TARGET REPOSITORY
+      # ============================================================
 
       - name: Checkout target Android project
         uses: actions/checkout@v4
@@ -34,11 +51,19 @@ jobs:
           path: target
           token: ${{ secrets.TARGET_REPO_TOKEN }}
 
+      # ============================================================
+      # 3 - JAVA
+      # ============================================================
+
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+
+      # ============================================================
+      # 4 - FIND ANDROID PROJECT
+      # ============================================================
 
       - name: Locate Android project
         id: project
@@ -46,17 +71,30 @@ jobs:
         run: |
           SETTINGS=$(find target \
             \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
-            -type f | head -1)
+            -type f \
+            ! -path "*/build/*" \
+            | head -1)
 
           if [ -z "$SETTINGS" ]; then
-            echo "❌ Android project not found"
+            echo "❌ Android Gradle project bulunamadi."
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$SETTINGS")
 
-          echo "✅ Android project: $PROJECT_DIR"
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+          echo "======================================"
+          echo "        REPO2PLAY V5"
+          echo "======================================"
+          echo "Repository : ${{ inputs.repository }}"
+          echo "Mode       : ${{ inputs.build_mode }}"
+          echo "Project    : $PROJECT_DIR"
+          echo "======================================"
+
+      # ============================================================
+      # 5 - GRADLE
+      # ============================================================
 
       - name: Prepare Gradle engine
         id: gradle
@@ -66,18 +104,23 @@ jobs:
           cd "$PROJECT_DIR"
 
           if [ -f "./gradlew" ]; then
+
             chmod +x ./gradlew
+
             echo "gradle_command=./gradlew" >> "$GITHUB_OUTPUT"
             echo "gradle_mode=wrapper" >> "$GITHUB_OUTPUT"
+
             ./gradlew --version
             exit 0
           fi
 
           WRAPPER_PROPERTIES=$(find . \
             -path "*/gradle/wrapper/gradle-wrapper.properties" \
-            -type f | head -1)
+            -type f \
+            | head -1)
 
           if [ -n "$WRAPPER_PROPERTIES" ]; then
+
             DISTRIBUTION_URL=$(grep "^distributionUrl=" \
               "$WRAPPER_PROPERTIES" \
               | cut -d= -f2- \
@@ -87,9 +130,11 @@ jobs:
               | sed -n 's/.*gradle-\([0-9.]*\)-.*/\1/p')
 
             if [ -z "$GRADLE_VERSION" ]; then
-              echo "❌ Gradle version could not be detected"
+              echo "❌ Gradle version bulunamadi."
               exit 1
             fi
+
+            echo "Gradle $GRADLE_VERSION indiriliyor..."
 
             curl -L \
               --retry 3 \
@@ -117,10 +162,14 @@ jobs:
             exit 0
           fi
 
-          echo "❌ Gradle engine unavailable"
+          echo "❌ Gradle kullanilamiyor."
           exit 1
 
-      - name: Analyze project
+      # ============================================================
+      # 6 - INITIAL REPORT
+      # ============================================================
+
+      - name: Analyze Play readiness
         shell: bash
         run: |
           PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
@@ -129,41 +178,46 @@ jobs:
           SCORE=0
 
           {
-            echo "Repo2Play V4"
-            echo "============="
+            echo "REPO2PLAY V5 - PLAY READINESS REPORT"
+            echo "===================================="
             echo ""
-            echo "Repository: ${{ inputs.repository }}"
-            echo "Branch: ${{ inputs.branch }}"
-            echo "Gradle mode: ${{ steps.gradle.outputs.gradle_mode }}"
+            echo "Repository : ${{ inputs.repository }}"
+            echo "Branch     : ${{ inputs.branch }}"
+            echo "Build mode : ${{ inputs.build_mode }}"
+            echo "Gradle     : ${{ steps.gradle.outputs.gradle_mode }}"
             echo ""
           } > "$REPORT"
 
           MANIFEST=$(find "$PROJECT_DIR" \
             -path "*/src/main/AndroidManifest.xml" \
-            -type f | head -1)
+            -type f \
+            | head -1)
 
           if [ -n "$MANIFEST" ]; then
-            echo "✅ AndroidManifest" | tee -a "$REPORT"
+            echo "✅ AndroidManifest found" | tee -a "$REPORT"
             SCORE=$((SCORE + 20))
 
             echo "" >> "$REPORT"
-            echo "Permissions:" >> "$REPORT"
+            echo "Declared permissions:" >> "$REPORT"
 
             grep -o 'android.permission.[A-Za-z0-9_]*' \
               "$MANIFEST" \
               | sort -u >> "$REPORT" || true
+
+            echo "" >> "$REPORT"
           else
-            echo "⚠ AndroidManifest missing" | tee -a "$REPORT"
+            echo "⚠ AndroidManifest not detected" | tee -a "$REPORT"
           fi
 
           if grep -R -q "com.android.application" \
             "$PROJECT_DIR" \
             --include="*.gradle" \
             --include="*.gradle.kts"; then
+
             echo "✅ Android application plugin" | tee -a "$REPORT"
             SCORE=$((SCORE + 20))
           else
-            echo "⚠ Android application plugin missing" | tee -a "$REPORT"
+            echo "⚠ Android application plugin not detected" | tee -a "$REPORT"
           fi
 
           TARGET_SDK=$(grep -RhoE \
@@ -179,13 +233,14 @@ jobs:
             echo "✅ Target SDK: $TARGET_SDK" | tee -a "$REPORT"
             SCORE=$((SCORE + 20))
           else
-            echo "⚠ Target SDK not detected" | tee -a "$REPORT"
+            echo "⚠ Target SDK could not be detected" | tee -a "$REPORT"
           fi
 
           if ! grep -R -q \
             'android:debuggable="true"' \
             "$PROJECT_DIR" \
             --include="AndroidManifest.xml"; then
+
             echo "✅ No debuggable=true" | tee -a "$REPORT"
             SCORE=$((SCORE + 20))
           else
@@ -200,66 +255,206 @@ jobs:
             echo "Initial readiness: $SCORE/100"
           } >> "$REPORT"
 
-      - name: Build unsigned Release APK
-        id: apk
-        continue-on-error: true
-        shell: bash
-        run: |
-          cd "${{ steps.project.outputs.project_dir }}"
-          GRADLE="${{ steps.gradle.outputs.gradle_command }}"
-          "$GRADLE" assembleRelease --stacktrace
+      # ============================================================
+      # 7 - SIGNING KEY
+      # ============================================================
 
-      - name: Build unsigned Release AAB
-        id: aab
-        continue-on-error: true
+      - name: Prepare signing key
         shell: bash
         run: |
-          cd "${{ steps.project.outputs.project_dir }}"
-          GRADLE="${{ steps.gradle.outputs.gradle_command }}"
-          "$GRADLE" bundleRelease --stacktrace
+          KEYSTORE="$GITHUB_WORKSPACE/repo2play-upload.jks"
 
-      - name: Create signing keystore
-        shell: bash
-        run: |
-          keytool -genkeypair \
-            -v \
-            -keystore "$GITHUB_WORKSPACE/repo2play-upload.jks" \
+          if [ "${{ inputs.build_mode }}" = "UPDATE" ]; then
+
+            echo "======================================"
+            echo "UPDATE MODE"
+            echo "Existing signing key kullaniliyor."
+            echo "======================================"
+
+            if [ -z "${{ secrets.APP_KEYSTORE_BASE64 }}" ]; then
+              echo "❌ APP_KEYSTORE_BASE64 secret bulunamadi."
+              exit 1
+            fi
+
+            printf '%s' "${{ secrets.APP_KEYSTORE_BASE64 }}" \
+              | base64 --decode \
+              > "$KEYSTORE"
+
+            if [ ! -s "$KEYSTORE" ]; then
+              echo "❌ Keystore restore basarisiz."
+              exit 1
+            fi
+
+          else
+
+            echo "======================================"
+            echo "NEW APP MODE"
+            echo "Yeni signing key olusturuluyor."
+            echo "======================================"
+
+            keytool -genkeypair \
+              -v \
+              -keystore "$KEYSTORE" \
+              -storepass "${{ secrets.SIGNING_STORE_PASSWORD }}" \
+              -keypass "${{ secrets.SIGNING_KEY_PASSWORD }}" \
+              -alias "${{ secrets.SIGNING_KEY_ALIAS }}" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Repo2Play, OU=Android, O=Repo2Play, L=Unknown, S=Unknown, C=US"
+          fi
+
+          echo ""
+          echo "Signing key kontrol ediliyor..."
+
+          keytool -list \
+            -keystore "$KEYSTORE" \
             -storepass "${{ secrets.SIGNING_STORE_PASSWORD }}" \
-            -keypass "${{ secrets.SIGNING_KEY_PASSWORD }}" \
             -alias "${{ secrets.SIGNING_KEY_ALIAS }}" \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=Repo2Play, OU=Android, O=Repo2Play, L=Unknown, S=Unknown, C=US"
+            >/dev/null
 
-      - name: Find unsigned APK
-        id: unsigned_apk
+          echo "✅ Signing key ready."
+
+      # ============================================================
+      # 8 - VERSION INFO BEFORE BUILD
+      # ============================================================
+
+      - name: Detect source version
+        shell: bash
+        run: |
+          PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
+          REPORT="$GITHUB_WORKSPACE/PLAY-READINESS-REPORT.txt"
+
+          VERSION_CODE=$(grep -RhoE \
+            'versionCode[[:space:]=]+[0-9]+' \
+            "$PROJECT_DIR" \
+            --include="*.gradle" \
+            --include="*.gradle.kts" \
+            | grep -oE '[0-9]+' \
+            | head -1 || true)
+
+          VERSION_NAME=$(grep -RhoE \
+            'versionName[[:space:]=]+"[^"]+"' \
+            "$PROJECT_DIR" \
+            --include="*.gradle" \
+            --include="*.gradle.kts" \
+            | head -1 \
+            | sed 's/.*"//;s/"//' || true)
+
+          {
+            echo ""
+            echo "SOURCE VERSION"
+            echo "=============="
+            echo "versionCode: ${VERSION_CODE:-not detected}"
+            echo "versionName: ${VERSION_NAME:-not detected}"
+          } >> "$REPORT"
+
+          if [ "${{ inputs.build_mode }}" = "UPDATE" ]; then
+            echo ""
+            echo "⚠ UPDATE MODE"
+            echo "Repo2Play V5 preserves the source versionCode."
+            echo "Google Play requires a versionCode higher than the previous uploaded release."
+            echo ""
+          fi
+
+      # ============================================================
+      # 9 - BUILD APK
+      # ============================================================
+
+      - name: Build Release APK
+        shell: bash
+        run: |
+          cd "${{ steps.project.outputs.project_dir }}"
+
+          GRADLE="${{ steps.gradle.outputs.gradle_command }}"
+
+          "$GRADLE" \
+            assembleRelease \
+            --stacktrace \
+            --no-daemon
+
+      # ============================================================
+      # 10 - BUILD AAB
+      # ============================================================
+
+      - name: Build Release AAB
+        shell: bash
+        run: |
+          cd "${{ steps.project.outputs.project_dir }}"
+
+          GRADLE="${{ steps.gradle.outputs.gradle_command }}"
+
+          "$GRADLE" \
+            bundleRelease \
+            --stacktrace \
+            --no-daemon
+
+      # ============================================================
+      # 11 - FIND APK
+      # ============================================================
+
+      - name: Locate Release APK
+        id: apk
         shell: bash
         run: |
           APK=$(find target \
             -type f \
-            -name "*release*.apk" \
+            -name "*.apk" \
             ! -path "*/intermediates/*" \
+            ! -path "*/androidTest/*" \
+            | grep -i release \
             | head -1)
 
           if [ -z "$APK" ]; then
-            echo "❌ Release APK not found"
+            echo "❌ Release APK bulunamadi."
             exit 1
           fi
 
           echo "apk=$APK" >> "$GITHUB_OUTPUT"
-          echo "✅ APK found: $APK"
+          echo "✅ APK: $APK"
 
-      - name: Sign APK
+      # ============================================================
+      # 12 - FIND AAB
+      # ============================================================
+
+      - name: Locate Release AAB
+        id: aab
         shell: bash
         run: |
-          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          AAB=$(find target \
+            -type f \
+            -name "*.aab" \
+            ! -path "*/intermediates/*" \
+            | grep -i release \
+            | head -1)
+
+          if [ -z "$AAB" ]; then
+            echo "❌ Release AAB bulunamadi."
+            exit 1
+          fi
+
+          echo "aab=$AAB" >> "$GITHUB_OUTPUT"
+          echo "✅ AAB: $AAB"
+
+      # ============================================================
+      # 13 - SIGN APK
+      # ============================================================
+
+      - name: Sign and verify APK
+        shell: bash
+        run: |
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* \
+            | sort -V \
+            | tail -1)
 
           ZIPALIGN="$BUILD_TOOLS/zipalign"
           APKSIGNER="$BUILD_TOOLS/apksigner"
 
-          "$ZIPALIGN" -f 4 \
-            "${{ steps.unsigned_apk.outputs.apk }}" \
+          "$ZIPALIGN" \
+            -f \
+            -v \
+            4 \
+            "${{ steps.apk.outputs.apk }}" \
             "$GITHUB_WORKSPACE/app-release-aligned.apk"
 
           "$APKSIGNER" sign \
@@ -275,29 +470,17 @@ jobs:
             --print-certs \
             "$GITHUB_WORKSPACE/app-release-signed.apk"
 
-      - name: Find AAB
-        id: unsigned_aab
-        shell: bash
-        run: |
-          AAB=$(find target \
-            -type f \
-            -name "*release*.aab" \
-            ! -path "*/intermediates/*" \
-            | head -1)
+          echo "✅ APK signed and verified."
 
-          if [ -z "$AAB" ]; then
-            echo "❌ Release AAB not found"
-            exit 1
-          fi
+      # ============================================================
+      # 14 - SIGN AAB
+      # ============================================================
 
-          echo "aab=$AAB" >> "$GITHUB_OUTPUT"
-          echo "✅ AAB found: $AAB"
-
-      - name: Sign AAB
+      - name: Sign and verify AAB
         shell: bash
         run: |
           cp \
-            "${{ steps.unsigned_aab.outputs.aab }}" \
+            "${{ steps.aab.outputs.aab }}" \
             "$GITHUB_WORKSPACE/app-release-signed.aab"
 
           jarsigner \
@@ -312,83 +495,129 @@ jobs:
 
           jarsigner \
             -verify \
-            -verbose \
-            -certs \
             "$GITHUB_WORKSPACE/app-release-signed.aab"
 
-      - name: Extract package information
-        continue-on-error: true
+          echo "✅ AAB signed and verified."
+
+      # ============================================================
+      # 15 - PACKAGE INFORMATION
+      # ============================================================
+
+      - name: Read final APK information
         shell: bash
         run: |
-          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* \
+            | sort -V \
+            | tail -1)
+
           AAPT="$BUILD_TOOLS/aapt"
 
           REPORT="$GITHUB_WORKSPACE/PLAY-READINESS-REPORT.txt"
 
           {
             echo ""
-            echo "Package Information"
-            echo "==================="
+            echo "FINAL APK INFORMATION"
+            echo "====================="
           } >> "$REPORT"
 
           "$AAPT" dump badging \
             "$GITHUB_WORKSPACE/app-release-signed.apk" \
             | grep -E \
-            "^package:|^sdkVersion:|^targetSdkVersion:" \
+            "^package:|^sdkVersion:|^targetSdkVersion:|^application-label:" \
             >> "$REPORT" || true
 
-      - name: Add signing result to report
+      # ============================================================
+      # 16 - SIGNING CERTIFICATE
+      # ============================================================
+
+      - name: Add signing fingerprint
         shell: bash
         run: |
           REPORT="$GITHUB_WORKSPACE/PLAY-READINESS-REPORT.txt"
 
           {
             echo ""
-            echo "Signing"
+            echo "SIGNING"
             echo "======="
-            echo "APK: signed and verified"
-            echo "AAB: signed and verified"
-            echo ""
-            echo "Build Results"
-            echo "============="
-            echo "APK Gradle build: ${{ steps.apk.outcome }}"
-            echo "AAB Gradle build: ${{ steps.aab.outcome }}"
+            echo "Mode: ${{ inputs.build_mode }}"
           } >> "$REPORT"
 
-      - name: Prepare final package
+          keytool \
+            -list \
+            -v \
+            -keystore "$GITHUB_WORKSPACE/repo2play-upload.jks" \
+            -storepass "${{ secrets.SIGNING_STORE_PASSWORD }}" \
+            -alias "${{ secrets.SIGNING_KEY_ALIAS }}" \
+            | grep -E "SHA1:|SHA256:" \
+            >> "$REPORT" || true
+
+          {
+            echo ""
+            echo "APK signature: VERIFIED"
+            echo "AAB signature: VERIFIED"
+          } >> "$REPORT"
+
+      # ============================================================
+      # 17 - FINAL OUTPUT
+      # ============================================================
+
+      - name: Prepare Repo2Play package
         shell: bash
         run: |
-          mkdir -p repo2play-output
+          mkdir -p "$GITHUB_WORKSPACE/repo2play-output"
 
           cp \
             "$GITHUB_WORKSPACE/app-release-signed.apk" \
-            repo2play-output/
+            "$GITHUB_WORKSPACE/repo2play-output/"
 
           cp \
             "$GITHUB_WORKSPACE/app-release-signed.aab" \
-            repo2play-output/
-
-          cp \
-            "$GITHUB_WORKSPACE/repo2play-upload.jks" \
-            repo2play-output/
+            "$GITHUB_WORKSPACE/repo2play-output/"
 
           cp \
             "$GITHUB_WORKSPACE/PLAY-READINESS-REPORT.txt" \
-            repo2play-output/
+            "$GITHUB_WORKSPACE/repo2play-output/"
 
-          {
-            echo "IMPORTANT"
-            echo "========="
-            echo ""
-            echo "Keep repo2play-upload.jks safe."
-            echo "You will need the same signing key for future updates."
-            echo ""
-            echo "Alias: ${{ secrets.SIGNING_KEY_ALIAS }}"
-          } > repo2play-output/KEYSTORE-INFO.txt
+          if [ "${{ inputs.build_mode }}" = "NEW" ]; then
 
-      - name: Upload Repo2Play V4 package
+            cp \
+              "$GITHUB_WORKSPACE/repo2play-upload.jks" \
+              "$GITHUB_WORKSPACE/repo2play-output/"
+
+            {
+              echo "REPO2PLAY SIGNING KEY"
+              echo "====================="
+              echo ""
+              echo "IMPORTANT:"
+              echo "Keep repo2play-upload.jks safe."
+              echo ""
+              echo "Future updates must use this signing identity."
+              echo ""
+              echo "Alias: ${{ secrets.SIGNING_KEY_ALIAS }}"
+            } > "$GITHUB_WORKSPACE/repo2play-output/KEYSTORE-INFO.txt"
+
+          else
+
+            {
+              echo "REPO2PLAY UPDATE BUILD"
+              echo "======================"
+              echo ""
+              echo "Existing signing key was used."
+              echo "No new signing identity was generated."
+              echo ""
+              echo "Verify versionCode before uploading to Google Play."
+            } > "$GITHUB_WORKSPACE/repo2play-output/UPDATE-INFO.txt"
+
+          fi
+
+      # ============================================================
+      # 18 - UPLOAD
+      # ============================================================
+
+      - name: Upload Repo2Play V5 output
         uses: actions/upload-artifact@v4
         with:
-          name: Repo2Play-V4-Output
+          name: Repo2Play-V5-${{ inputs.build_mode }}-Output
           path: repo2play-output/
           if-no-files-found: error
+          retention-days: 7
