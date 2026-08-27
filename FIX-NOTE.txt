@@ -1,0 +1,5 @@
+Repo2Play V12 FIXED
+Removed android:postSplashScreenTheme from values-v31/styles.xml.
+That attribute is provided by the AndroidX SplashScreen library, not the Android framework.
+This project uses SplashActivity directly, so the attribute is unnecessary.
+Store workflow still builds BOTH release APK and release AAB.
