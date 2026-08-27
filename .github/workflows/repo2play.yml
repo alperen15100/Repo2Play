@@ -1,4 +1,5 @@
-name: Repo2Play V10 Clean Engine
+name: Repo2Play V10.1 Signed Engine
+
 on:
   workflow_dispatch:
     inputs:
@@ -11,17 +12,30 @@ on:
         required: true
         default: "main"
         type: string
+      build_mode:
+        description: "NEW = first release, UPDATE = existing app"
+        required: true
+        default: "NEW"
+        type: choice
+        options:
+          - NEW
+          - UPDATE
+
 permissions:
   contents: read
+
 jobs:
   build:
+    name: Analyze Build Sign Package
     runs-on: ubuntu-latest
     timeout-minutes: 45
+
     steps:
       - name: Checkout engine
         uses: actions/checkout@v4
         with:
           path: engine
+
       - name: Checkout target
         uses: actions/checkout@v4
         with:
@@ -29,25 +43,33 @@ jobs:
           ref: ${{ inputs.branch }}
           path: target
           token: ${{ secrets.TARGET_REPO_TOKEN || github.token }}
+
       - name: Setup Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
+
       - name: Run engine
         shell: bash
         env:
           TARGET_REPOSITORY: ${{ inputs.repository }}
           TARGET_BRANCH: ${{ inputs.branch }}
+          BUILD_MODE: ${{ inputs.build_mode }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          APP_KEYSTORE_BASE64: ${{ secrets.APP_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
           chmod +x engine/scripts/*.sh
           engine/scripts/run.sh "$GITHUB_WORKSPACE/target" "$GITHUB_WORKSPACE/output"
+
       - name: Upload result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Repo2Play-V10-Result
+          name: Repo2Play-V10.1-${{ inputs.build_mode }}-Result
           path: output/
           if-no-files-found: warn
           retention-days: 7

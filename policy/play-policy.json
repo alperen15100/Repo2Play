@@ -1,1 +1,8 @@
-{"schema":1,"engine":"Repo2Play V10","android":{"target_sdk_baseline":36,"note":"Versioned technical baseline; refresh from authoritative Google Play policy before production claims."}}
+{
+  "schema": 1,
+  "engine": "Repo2Play V10.1 Signed Engine",
+  "android": {
+    "target_sdk_baseline": 36,
+    "note": "Technical engine baseline. Google Play policy must be refreshed from authoritative sources before production claims."
+  }
+}
