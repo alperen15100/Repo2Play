@@ -1,193 +1,53 @@
-name: Repo2Play V10 Core
-
+name: Repo2Play V10 Clean Engine
 on:
   workflow_dispatch:
     inputs:
       repository:
-        description: "Android repo (owner/repo)"
+        description: "GitHub repository (owner/repo)"
         required: true
-        default: "alperen15100/Nur-widgets"
-
+        type: string
       branch:
         description: "Branch"
         required: true
         default: "main"
-
+        type: string
+permissions:
+  contents: read
 jobs:
   build:
-    name: Build APK + AAB
     runs-on: ubuntu-latest
-
+    timeout-minutes: 45
     steps:
-      - name: Checkout Android repo
+      - name: Checkout engine
+        uses: actions/checkout@v4
+        with:
+          path: engine
+      - name: Checkout target
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.branch }}
           path: target
-          token: ${{ secrets.TARGET_REPO_TOKEN }}
-
+          token: ${{ secrets.TARGET_REPO_TOKEN || github.token }}
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-
-      - name: Find Android project
-        id: project
+      - name: Run engine
         shell: bash
+        env:
+          TARGET_REPOSITORY: ${{ inputs.repository }}
+          TARGET_BRANCH: ${{ inputs.branch }}
         run: |
-          set -e
-
-          SETTINGS=$(find target \
-            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
-            -type f \
-            ! -path "*/build/*" \
-            | head -1 || true)
-
-          if [ -z "$SETTINGS" ]; then
-            echo "Android Gradle project not found"
-            exit 1
-          fi
-
-          PROJECT_DIR=$(dirname "$SETTINGS")
-
-          echo "Found project: $PROJECT_DIR"
-          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-
-      - name: Prepare Gradle
-        id: gradle
-        shell: bash
-        run: |
-          set -e
-
-          cd "${{ steps.project.outputs.dir }}"
-
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            echo "cmd=./gradlew" >> "$GITHUB_OUTPUT"
-            ./gradlew --version
-            exit 0
-          fi
-
-          PROPS=$(find . \
-            -path "*/gradle/wrapper/gradle-wrapper.properties" \
-            -type f \
-            | head -1 || true)
-
-          if [ -n "$PROPS" ]; then
-            VERSION=$(grep '^distributionUrl=' "$PROPS" \
-              | sed -n 's/.*gradle-\([0-9.]*\)-.*/\1/p')
-
-            if [ -z "$VERSION" ]; then
-              echo "Gradle version not detected"
-              exit 1
-            fi
-
-            echo "Downloading Gradle $VERSION"
-
-            curl -L \
-              --fail \
-              --retry 3 \
-              "https://services.gradle.org/distributions/gradle-${VERSION}-bin.zip" \
-              -o /tmp/gradle.zip
-
-            rm -rf /tmp/gradle
-            mkdir -p /tmp/gradle
-
-            unzip -q /tmp/gradle.zip -d /tmp/gradle
-
-            CMD="/tmp/gradle/gradle-${VERSION}/bin/gradle"
-
-            chmod +x "$CMD"
-
-            echo "cmd=$CMD" >> "$GITHUB_OUTPUT"
-
-            "$CMD" --version
-            exit 0
-          fi
-
-          echo "Gradle wrapper not found"
-          exit 1
-
-      - name: Build release APK
-        shell: bash
-        run: |
-          set -e
-
-          cd "${{ steps.project.outputs.dir }}"
-
-          "${{ steps.gradle.outputs.cmd }}" \
-            assembleRelease \
-            --no-daemon \
-            --stacktrace
-
-      - name: Build release AAB
-        shell: bash
-        run: |
-          set -e
-
-          cd "${{ steps.project.outputs.dir }}"
-
-          "${{ steps.gradle.outputs.cmd }}" \
-            bundleRelease \
-            --no-daemon \
-            --stacktrace
-
-      - name: Collect APK and AAB
-        shell: bash
-        run: |
-          set -e
-
-          OUTPUT="$GITHUB_WORKSPACE/output"
-          mkdir -p "$OUTPUT"
-
-          APK=$(find "$GITHUB_WORKSPACE/target" \
-            -type f \
-            -name "*.apk" \
-            ! -path "*/intermediates/*" \
-            ! -path "*/androidTest/*" \
-            | grep -i release \
-            | head -1 || true)
-
-          AAB=$(find "$GITHUB_WORKSPACE/target" \
-            -type f \
-            -name "*.aab" \
-            ! -path "*/intermediates/*" \
-            | grep -i release \
-            | head -1 || true)
-
-          echo "APK = $APK"
-          echo "AAB = $AAB"
-
-          if [ -z "$APK" ]; then
-            echo "Release APK not found"
-            exit 1
-          fi
-
-          if [ -z "$AAB" ]; then
-            echo "Release AAB not found"
-            exit 1
-          fi
-
-          cp "$APK" "$OUTPUT/app-release.apk"
-          cp "$AAB" "$OUTPUT/app-release.aab"
-
-          {
-            echo "Repo2Play V10 Core"
-            echo "=================="
-            echo "Repository: ${{ inputs.repository }}"
-            echo "Branch: ${{ inputs.branch }}"
-            echo "APK: OK"
-            echo "AAB: OK"
-          } > "$OUTPUT/BUILD-REPORT.txt"
-
-          ls -lah "$OUTPUT"
-
-      - name: Upload APK + AAB
+          set -euo pipefail
+          chmod +x engine/scripts/*.sh
+          engine/scripts/run.sh "$GITHUB_WORKSPACE/target" "$GITHUB_WORKSPACE/output"
+      - name: Upload result
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Repo2Play-V10-Output
+          name: Repo2Play-V10-Result
           path: output/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
