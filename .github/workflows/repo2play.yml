@@ -1,4 +1,4 @@
-name: Repo2Play V11 Production Stage 1
+name: Repo2Play V12 Production Engine
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       branch:
-        description: "Branch"
+        description: "Target branch"
         required: true
         default: "main"
         type: string
@@ -20,6 +20,11 @@ on:
         options:
           - NEW
           - UPDATE
+      keystore_base64:
+        description: "Per-project signing key for UPDATE; blank for NEW"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -59,17 +64,26 @@ jobs:
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-          APP_KEYSTORE_BASE64: ${{ secrets.APP_KEYSTORE_BASE64 }}
+          APP_KEYSTORE_BASE64: ${{ inputs.keystore_base64 }}
         run: |
           set -euo pipefail
           chmod +x engine/scripts/*.sh
           engine/scripts/run.sh "$GITHUB_WORKSPACE/target" "$GITHUB_WORKSPACE/output"
 
-      - name: Upload result
+      - name: Require Play Store deliverables
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s output/app-release-signed.apk
+          test -s output/app-release-signed.aab
+          test -s output/repo2play-upload.jks
+
+      - name: Upload release package
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Repo2Play-V11-${{ inputs.build_mode }}-Result
+          name: Repo2Play-V12-${{ inputs.build_mode }}-Result
           path: output/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7

@@ -1,0 +1,10 @@
+<resources>
+    <style name="SplashTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowSplashScreenBackground">@color/bg</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_mark</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/surface</item>
+        <item name="android:postSplashScreenTheme">@style/AppTheme</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+    </style>
+</resources>
