@@ -1,10 +1,10 @@
-name: Repo2Play V9.2
+name: Repo2Play V10 Core
 
 on:
   workflow_dispatch:
     inputs:
       repository:
-        description: "Android repository (owner/repo)"
+        description: "Android repo (owner/repo)"
         required: true
         default: "alperen15100/Nur-widgets"
 
@@ -13,37 +13,13 @@ on:
         required: true
         default: "main"
 
-      build_mode:
-        description: "NEW = first release / UPDATE = existing app"
-        required: true
-        type: choice
-        options:
-          - NEW
-          - UPDATE
-        default: NEW
-
-      auto_fix:
-        description: "Try safe automatic fixes"
-        required: true
-        type: choice
-        options:
-          - "YES"
-          - "NO"
-        default: "YES"
-
 jobs:
   build:
-    name: Repo2Play V9.2
+    name: Build APK + AAB
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: read
-
     steps:
-      - name: Checkout Repo2Play
-        uses: actions/checkout@v4
-
-      - name: Checkout target repo
+      - name: Checkout Android repo
         uses: actions/checkout@v4
         with:
           repository: ${{ inputs.repository }}
@@ -51,96 +27,69 @@ jobs:
           path: target
           token: ${{ secrets.TARGET_REPO_TOKEN }}
 
-      - name: Setup Java
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Load policy
-        id: policy
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          POLICY="$GITHUB_WORKSPACE/policy/play-policy.json"
-
-          if [ ! -f "$POLICY" ]; then
-            echo "ERROR: policy/play-policy.json missing"
-            exit 1
-          fi
-
-          POLICY_VERSION=$(python3 -c 'import json; d=json.load(open("policy/play-policy.json")); print(d["policy_version"])')
-
-          UPDATED_AT=$(python3 -c 'import json; d=json.load(open("policy/play-policy.json")); print(d["updated_at"])')
-
-          if [ "${{ inputs.build_mode }}" = "UPDATE" ]; then
-            REQUIRED_TARGET=$(python3 -c 'import json; d=json.load(open("policy/play-policy.json")); print(d["platforms"]["android"]["update_target_sdk"])')
-          else
-            REQUIRED_TARGET=$(python3 -c 'import json; d=json.load(open("policy/play-policy.json")); print(d["platforms"]["android"]["new_app_target_sdk"])')
-          fi
-
-          EFFECTIVE_DATE=$(python3 -c 'import json; d=json.load(open("policy/play-policy.json")); print(d["platforms"]["android"]["effective_date"])')
-
-          echo "policy_version=$POLICY_VERSION" >> "$GITHUB_OUTPUT"
-          echo "updated_at=$UPDATED_AT" >> "$GITHUB_OUTPUT"
-          echo "required_target=$REQUIRED_TARGET" >> "$GITHUB_OUTPUT"
-          echo "effective_date=$EFFECTIVE_DATE" >> "$GITHUB_OUTPUT"
-
-      - name: Locate Android project
+      - name: Find Android project
         id: project
         shell: bash
         run: |
-          set -euo pipefail
+          set -e
 
           SETTINGS=$(find target \
             \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
             -type f \
             ! -path "*/build/*" \
-            | head -1)
+            | head -1 || true)
 
           if [ -z "$SETTINGS" ]; then
-            echo "ERROR: Android project not found"
+            echo "Android Gradle project not found"
             exit 1
           fi
 
           PROJECT_DIR=$(dirname "$SETTINGS")
 
-          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Found project: $PROJECT_DIR"
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Prepare Gradle
         id: gradle
         shell: bash
         run: |
-          set -euo pipefail
+          set -e
 
-          cd "${{ steps.project.outputs.project_dir }}"
+          cd "${{ steps.project.outputs.dir }}"
 
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
-
             echo "cmd=./gradlew" >> "$GITHUB_OUTPUT"
-            echo "mode=wrapper" >> "$GITHUB_OUTPUT"
-
             ./gradlew --version
             exit 0
           fi
 
-          WRAPPER=$(find . \
+          PROPS=$(find . \
             -path "*/gradle/wrapper/gradle-wrapper.properties" \
             -type f \
             | head -1 || true)
 
-          if [ -n "$WRAPPER" ]; then
-            VER=$(grep '^distributionUrl=' "$WRAPPER" \
+          if [ -n "$PROPS" ]; then
+            VERSION=$(grep '^distributionUrl=' "$PROPS" \
               | sed -n 's/.*gradle-\([0-9.]*\)-.*/\1/p')
 
-            test -n "$VER"
+            if [ -z "$VERSION" ]; then
+              echo "Gradle version not detected"
+              exit 1
+            fi
+
+            echo "Downloading Gradle $VERSION"
 
             curl -L \
-              --retry 3 \
               --fail \
-              "https://services.gradle.org/distributions/gradle-${VER}-bin.zip" \
+              --retry 3 \
+              "https://services.gradle.org/distributions/gradle-${VERSION}-bin.zip" \
               -o /tmp/gradle.zip
 
             rm -rf /tmp/gradle
@@ -148,526 +97,97 @@ jobs:
 
             unzip -q /tmp/gradle.zip -d /tmp/gradle
 
-            CMD="/tmp/gradle/gradle-${VER}/bin/gradle"
+            CMD="/tmp/gradle/gradle-${VERSION}/bin/gradle"
 
             chmod +x "$CMD"
 
             echo "cmd=$CMD" >> "$GITHUB_OUTPUT"
-            echo "mode=downloaded" >> "$GITHUB_OUTPUT"
 
             "$CMD" --version
             exit 0
           fi
 
-          if command -v gradle >/dev/null 2>&1; then
-            echo "cmd=gradle" >> "$GITHUB_OUTPUT"
-            echo "mode=system" >> "$GITHUB_OUTPUT"
-
-            gradle --version
-            exit 0
-          fi
-
-          echo "ERROR: Gradle unavailable"
+          echo "Gradle wrapper not found"
           exit 1
 
-      - name: Prepare reports
+      - name: Build release APK
         shell: bash
         run: |
-          set -euo pipefail
+          set -e
 
-          REPORT="$GITHUB_WORKSPACE/PLAY-READINESS-REPORT.txt"
-          FIXLOG="$GITHUB_WORKSPACE/AUTO-FIX-REPORT.txt"
+          cd "${{ steps.project.outputs.dir }}"
+
+          "${{ steps.gradle.outputs.cmd }}" \
+            assembleRelease \
+            --no-daemon \
+            --stacktrace
+
+      - name: Build release AAB
+        shell: bash
+        run: |
+          set -e
+
+          cd "${{ steps.project.outputs.dir }}"
+
+          "${{ steps.gradle.outputs.cmd }}" \
+            bundleRelease \
+            --no-daemon \
+            --stacktrace
+
+      - name: Collect APK and AAB
+        shell: bash
+        run: |
+          set -e
+
+          OUTPUT="$GITHUB_WORKSPACE/output"
+          mkdir -p "$OUTPUT"
+
+          APK=$(find "$GITHUB_WORKSPACE/target" \
+            -type f \
+            -name "*.apk" \
+            ! -path "*/intermediates/*" \
+            ! -path "*/androidTest/*" \
+            | grep -i release \
+            | head -1 || true)
+
+          AAB=$(find "$GITHUB_WORKSPACE/target" \
+            -type f \
+            -name "*.aab" \
+            ! -path "*/intermediates/*" \
+            | grep -i release \
+            | head -1 || true)
+
+          echo "APK = $APK"
+          echo "AAB = $AAB"
+
+          if [ -z "$APK" ]; then
+            echo "Release APK not found"
+            exit 1
+          fi
+
+          if [ -z "$AAB" ]; then
+            echo "Release AAB not found"
+            exit 1
+          fi
+
+          cp "$APK" "$OUTPUT/app-release.apk"
+          cp "$AAB" "$OUTPUT/app-release.aab"
 
           {
-            echo "REPO2PLAY V9.2"
-            echo "==============="
-            echo ""
+            echo "Repo2Play V10 Core"
+            echo "=================="
             echo "Repository: ${{ inputs.repository }}"
             echo "Branch: ${{ inputs.branch }}"
-            echo "Mode: ${{ inputs.build_mode }}"
-            echo "Auto Fix: ${{ inputs.auto_fix }}"
-            echo ""
-            echo "POLICY ENGINE"
-            echo "============="
-            echo "Policy Version: ${{ steps.policy.outputs.policy_version }}"
-            echo "Policy Updated: ${{ steps.policy.outputs.updated_at }}"
-            echo "Required Target SDK: ${{ steps.policy.outputs.required_target }}"
-            echo "Effective Date: ${{ steps.policy.outputs.effective_date }}"
-            echo ""
-          } > "$REPORT"
-
-          {
-            echo "REPO2PLAY V9.2 AUTO FIX"
-            echo "======================="
-            echo ""
-          } > "$FIXLOG"
-
-      - name: Update version
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          PROJECT="${{ steps.project.outputs.project_dir }}"
-          REPORT="$GITHUB_WORKSPACE/PLAY-READINESS-REPORT.txt"
-
-          VFILE=$(grep -RIl \
-            -E 'versionCode[[:space:]]*=?[[:space:]]*[0-9]+' \
-            "$PROJECT" \
-            --include="*.gradle" \
-            --include="*.gradle.kts" \
-            | head -1 || true)
-
-          NFILE=$(grep -RIl \
-            -E 'versionName[[:space:]]*=?[[:space:]]*"[^"]+"' \
-            "$PROJECT" \
-            --include="*.gradle" \
-            --include="*.gradle.kts" \
-            | head -1 || true)
-
-          OLD_CODE=""
-          NEW_CODE=""
-          OLD_NAME=""
-          NEW_NAME=""
-
-          if [ -n "$VFILE" ]; then
-            OLD_CODE=$(grep -Eo \
-              'versionCode[[:space:]]*=?[[:space:]]*[0-9]+' \
-              "$VFILE" \
-              | head -1 \
-              | grep -Eo '[0-9]+$' || true)
-          fi
-
-          if [ -n "$NFILE" ]; then
-            OLD_NAME=$(grep -Eo \
-              'versionName[[:space:]]*=?[[:space:]]*"[^"]+"' \
-              "$NFILE" \
-              | head -1 \
-              | sed -E 's/.*"([^"]+)".*/\1/' || true)
-          fi
-
-          if [ "${{ inputs.build_mode }}" = "UPDATE" ]; then
-
-            if [ -n "$OLD_CODE" ] && [ -n "$VFILE" ]; then
-              NEW_CODE=$((OLD_CODE + 1))
-
-              sed -i -E \
-                "0,/versionCode[[:space:]]*=?[[:space:]]*${OLD_CODE}/s//versionCode = ${NEW_CODE}/" \
-                "$VFILE"
-            fi
-
-            if [ -n "$OLD_NAME" ] && [ -n "$NFILE" ]; then
-              NEW_NAME=$(python3 -c \
-                'import sys; p=sys.argv[1].split("."); p[-1]=str(int(p[-1])+1) if p[-1].isdigit() else p[-1]; print(".".join(p))' \
-                "$OLD_NAME")
-
-              sed -i \
-                "0,/versionName = \"${OLD_NAME}\"/s//versionName = \"${NEW_NAME}\"/" \
-                "$NFILE"
-
-              sed -i \
-                "0,/versionName \"${OLD_NAME}\"/s//versionName \"${NEW_NAME}\"/" \
-                "$NFILE"
-            fi
-          fi
-
-          {
-            echo "VERSION"
-            echo "======="
-            echo "Old versionCode: ${OLD_CODE:-not detected}"
-            echo "New versionCode: ${NEW_CODE:-unchanged}"
-            echo "Old versionName: ${OLD_NAME:-not detected}"
-            echo "New versionName: ${NEW_NAME:-unchanged}"
-            echo ""
-          } >> "$REPORT"
-
-      - name: Backup project
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          PROJECT="${{ steps.project.outputs.project_dir }}"
-
-          rm -rf /tmp/repo2play-backup
-          mkdir -p /tmp/repo2play-backup
-
-          cp -a "$PROJECT/." /tmp/repo2play-backup/
-
-      - name: Detect SDK
-        id: sdk
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          PROJECT="${{ steps.project.outputs.project_dir }}"
-
-          TARGET=$(grep -RhoE \
-            'targetSdk(Versi(on)?)?[[:space:]=("]*[0-9]+' \
-            "$PROJECT" \
-            --include="*.gradle" \
-            --include="*.gradle.kts" \
-            | grep -oE '[0-9]+' \
-            | sort -nr \
-            | head -1 || true)
-
-          COMPILE=$(grep -RhoE \
-            'compileSdk(Versi(on)?)?[[:space:]=("]*[0-9]+' \
-            "$PROJECT" \
-            --include="*.gradle" \
-            --include="*.gradle.kts" \
-            | grep -oE '[0-9]+' \
-            | sort -nr \
-            | head -1 || true)
-
-          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
-          echo "compile=$COMPILE" >> "$GITHUB_OUTPUT"
-
-      - name: Apply policy auto-fix
-        if: ${{ inputs.auto_fix == 'YES' }}
-        id: autofix
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          PROJECT="${{ steps.project.outputs.project_dir }}"
-          FIXLOG="$GITHUB_WORKSPACE/AUTO-FIX-REPORT.txt"
-
-          CURRENT_TARGET="${{ steps.sdk.outputs.target }}"
-          CURRENT_COMPILE="${{ steps.sdk.outputs.compile }}"
-          REQUIRED="${{ steps.policy.outputs.required_target }}"
-
-          ATTEMPTED="NO"
-
-          if [ -n "$CURRENT_TARGET" ] && [ "$CURRENT_TARGET" -lt "$REQUIRED" ]; then
-            ATTEMPTED="YES"
-
-            echo "targetSdk $CURRENT_TARGET -> $REQUIRED" | tee -a "$FIXLOG"
-
-            while IFS= read -r FILE; do
-              sed -i -E \
-                "s/(targetSdk(Versi(on)?)?[[:space:]]*=?[[:space:]]*)${CURRENT_TARGET}/\1${REQUIRED}/g" \
-                "$FILE"
-            done < <(
-              grep -RIl \
-                "targetSdk" \
-                "$PROJECT" \
-                --include="*.gradle" \
-                --include="*.gradle.kts" || true
-            )
-          fi
-
-          if [ -n "$CURRENT_COMPILE" ] && [ "$CURRENT_COMPILE" -lt "$REQUIRED" ]; then
-            ATTEMPTED="YES"
-
-            echo "compileSdk $CURRENT_COMPILE -> $REQUIRED" | tee -a "$FIXLOG"
-
-            while IFS= read -r FILE; do
-              sed -i -E \
-                "s/(compileSdk(Versi(on)?)?[[:space:]]*=?[[:space:]]*)${CURRENT_COMPILE}/\1${REQUIRED}/g" \
-                "$FILE"
-            done < <(
-              grep -RIl \
-                "compileSdk" \
-                "$PROJECT" \
-                --include="*.gradle" \
-                --include="*.gradle.kts" || true
-            )
-          fi
-
-          echo "attempted=$ATTEMPTED" >> "$GITHUB_OUTPUT"
-
-      - name: Test auto-fix
-        if: ${{ inputs.auto_fix == 'YES' && steps.autofix.outputs.attempted == 'YES' }}
-        id: fixtest
-        continue-on-error: true
-        shell: bash
-        run: |
-          cd "${{ steps.project.outputs.project_dir }}"
-
-          GRADLE="${{ steps.gradle.outputs.cmd }}"
-
-          "$GRADLE" assembleRelease --stacktrace --no-daemon
-
-      - name: Resolve auto-fix
-        if: ${{ inputs.auto_fix == 'YES' && steps.autofix.outputs.attempted == 'YES' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          PROJECT="${{ steps.project.outputs.project_dir }}"
-          FIXLOG="$GITHUB_WORKSPACE/AUTO-FIX-REPORT.txt"
-
-          if [ "${{ steps.fixtest.outcome }}" = "success" ]; then
-            echo "AUTO-FIX RESULT: SUCCESS" | tee -a "$FIXLOG"
-            echo "Policy changes kept." | tee -a "$FIXLOG"
-          else
-            echo "AUTO-FIX RESULT: ROLLBACK" | tee -a "$FIXLOG"
-
-            find "$PROJECT" \
-              -mindepth 1 \
-              -maxdepth 1 \
-              -exec rm -rf {} +
-
-            cp -a /tmp/repo2play-backup/. "$PROJECT/"
-          fi
-
-      - name: Run lint
-        id: lint
-        continue-on-error: true
-        shell: bash
-        run: |
-          cd "${{ steps.project.outputs.project_dir }}"
-
-          GRADLE="${{ steps.gradle.outputs.cmd }}"
-
-          "$GRADLE" lintRelease --no-daemon \
-            > "$GITHUB_WORKSPACE/LINT-REPORT.txt" 2>&1
-
-      - name: Play Store Doctor
-        id: doctor
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          PROJECT="${{ steps.project.outputs.project_dir }}"
-          REPORT="$GITHUB_WORKSPACE/PLAY-READINESS-REPORT.txt"
-          REQUIRED="${{ steps.policy.outputs.required_target }}"
-
-          SCORE=100
-          BLOCKERS=0
-          WARNINGS=0
-          PASSES=0
-
-          pass_check() {
-            echo "PASS    $1" | tee -a "$REPORT"
-            PASSES=$((PASSES + 1))
-          }
-
-          warn_check() {
-            echo "WARNING $1" | tee -a "$REPORT"
-            WARNINGS=$((WARNINGS + 1))
-            SCORE=$((SCORE - 5))
-          }
-
-          block_check() {
-            echo "BLOCKER $1" | tee -a "$REPORT"
-            BLOCKERS=$((BLOCKERS + 1))
-            SCORE=$((SCORE - 15))
-          }
-
-          echo "PLAY STORE DOCTOR" >> "$REPORT"
-          echo "=================" >> "$REPORT"
-
-          MANIFEST=$(find "$PROJECT" \
-            -path "*/src/main/AndroidManifest.xml" \
-            -type f \
-            | head -1 || true)
-
-          if [ -n "$MANIFEST" ]; then
-            pass_check "AndroidManifest found"
-          else
-            block_check "AndroidManifest missing"
-          fi
-
-          TARGET=$(grep -RhoE \
-            'targetSdk(Versi(on)?)?[[:space:]=("]*[0-9]+' \
-            "$PROJECT" \
-            --include="*.gradle" \
-            --include="*.gradle.kts" \
-            | grep -oE '[0-9]+' \
-            | sort -nr \
-            | head -1 || true)
-
-          COMPILE=$(grep -RhoE \
-            'compileSdk(Versi(on)?)?[[:space:]=("]*[0-9]+' \
-            "$PROJECT" \
-            --include="*.gradle" \
-            --include="*.gradle.kts" \
-            | grep -oE '[0-9]+' \
-            | sort -nr \
-            | head -1 || true)
-
-          if [ -z "$TARGET" ]; then
-            block_check "targetSdk not detected"
-          elif [ "$TARGET" -ge "$REQUIRED" ]; then
-            pass_check "targetSdk $TARGET meets policy $REQUIRED"
-          else
-            block_check "targetSdk $TARGET below policy $REQUIRED"
-          fi
-
-          if [ -n "$COMPILE" ]; then
-            pass_check "compileSdk $COMPILE"
-          else
-            warn_check "compileSdk not detected"
-          fi
-
-          if grep -R -q \
-            'android:debuggable="true"' \
-            "$PROJECT" \
-            --include="AndroidManifest.xml"; then
-            block_check "debuggable=true"
-          else
-            pass_check "No explicit debuggable=true"
-          fi
-
-          if grep -R -q \
-            'android:usesCleartextTraffic="true"' \
-            "$PROJECT" \
-            --include="AndroidManifest.xml"; then
-            warn_check "Cleartext traffic enabled"
-          else
-            pass_check "Cleartext traffic not explicitly enabled"
-          fi
-
-          if grep -R -q \
-            'android:allowBackup="true"' \
-            "$PROJECT" \
-            --include="AndroidManifest.xml"; then
-            warn_check "allowBackup=true"
-          fi
-
-          if grep -R -q \
-            'android.permission.ACCESS_FINE_LOCATION' \
-            "$PROJECT" \
-            --include="AndroidManifest.xml"; then
-            warn_check "Precise location permission"
-          fi
-
-          if grep -R -q \
-            'android.permission.ACCESS_BACKGROUND_LOCATION' \
-            "$PROJECT" \
-            --include="AndroidManifest.xml"; then
-            warn_check "Background location permission"
-          fi
-
-          if grep -R -q \
-            'android.permission.MANAGE_EXTERNAL_STORAGE' \
-            "$PROJECT" \
-            --include="AndroidManifest.xml"; then
-            warn_check "MANAGE_EXTERNAL_STORAGE permission"
-          fi
-
-          EXPORTED=$(grep -Rho \
-            'android:exported="true"' \
-            "$PROJECT" \
-            --include="AndroidManifest.xml" \
-            | wc -l)
-
-          if [ "$EXPORTED" -gt 0 ]; then
-            warn_check "$EXPORTED exported component(s)"
-          fi
-
-          ICON=$(find "$PROJECT" \
-            -type f \
-            \( \
-              -path "*/mipmap-anydpi-v26/ic_launcher.xml" \
-              -o \
-              -path "*/mipmap-anydpi-v26/ic_launcher_round.xml" \
-            \) \
-            | head -1 || true)
-
-          if [ -n "$ICON" ]; then
-            pass_check "Adaptive launcher icon"
-          else
-            warn_check "Adaptive launcher icon missing"
-          fi
-
-          NATIVE=$(find "$PROJECT" \
-            -type f \
-            -name "*.so" \
-            | head -1 || true)
-
-          if [ -z "$NATIVE" ]; then
-            pass_check "No native libraries"
-          else
-            ARM64=$(find "$PROJECT" \
-              -type f \
-              -path "*arm64-v8a*" \
-              -name "*.so" \
-              | head -1 || true)
-
-            if [ -n "$ARM64" ]; then
-              pass_check "arm64-v8a present"
-            else
-              block_check "arm64-v8a missing"
-            fi
-          fi
-
-          if [ "${{ steps.lint.outcome }}" = "success" ]; then
-            pass_check "lintRelease passed"
-          else
-            warn_check "lintRelease issues detected"
-          fi
-
-          if [ "$SCORE" -lt 0 ]; then
-            SCORE=0
-          fi
-
-          {
-            echo ""
-            echo "DOCTOR RESULT"
-            echo "============="
-            echo "Score: $SCORE/100"
-            echo "Passes: $PASSES"
-            echo "Blockers: $BLOCKERS"
-            echo "Warnings: $WARNINGS"
-            echo ""
-          } >> "$REPORT"
-
-          echo "score=$SCORE" >> "$GITHUB_OUTPUT"
-          echo "passes=$PASSES" >> "$GITHUB_OUTPUT"
-          echo "blockers=$BLOCKERS" >> "$GITHUB_OUTPUT"
-          echo "warnings=$WARNINGS" >> "$GITHUB_OUTPUT"
-
-      - name: Prepare signing key
-        shell: bash
-        env:
-          STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-          APP_KEYSTORE_BASE64: ${{ secrets.APP_KEYSTORE_BASE64 }}
-        run: |
-          set -euo pipefail
-
-          KEYSTORE="$GITHUB_WORKSPACE/repo2play-upload.jks"
-
-          if [ "${{ inputs.build_mode }}" = "UPDATE" ]; then
-            test -n "$APP_KEYSTORE_BASE64"
-
-            printf '%s' "$APP_KEYSTORE_BASE64" \
-              | base64 --decode \
-              > "$KEYSTORE"
-
-            test -s "$KEYSTORE"
-          else
-            keytool -genkeypair \
-              -keystore "$KEYSTORE" \
-              -storepass "$STORE_PASSWORD" \
-              -keypass "$KEY_PASSWORD" \
-              -alias "$KEY_ALIAS" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Repo2Play, OU=Android, O=Repo2Play, L=Unknown, S=Unknown, C=US"
-          fi
-
-          keytool -list \
-            -keystore "$KEYSTORE" \
-            -storepass "$STORE_PASSWORD" \
-            -alias "$KEY_ALIAS" \
-            >/dev/null
-
-      - name: Build final APK
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cd "${{ steps.project.outputs.project_dir }}"
-
-          GRADLE="${{ steps.gradle.outputs.cmd }}"
-
-          "$GRADLE" assembleRelease --stacktrace --no-daemon
-
-      - name: Build final AAB
-        shell: bash
-        run: |
-    
+            echo "APK: OK"
+            echo "AAB: OK"
+          } > "$OUTPUT/BUILD-REPORT.txt"
+
+          ls -lah "$OUTPUT"
+
+      - name: Upload APK + AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: Repo2Play-V10-Output
+          path: output/
+          if-no-files-found: error
+          retention-days: 7
