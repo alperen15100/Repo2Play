@@ -10,7 +10,7 @@ elif [ -f gradle/wrapper/gradle-wrapper.properties ]; then
   curl -fsSL --retry 3 "https://services.gradle.org/distributions/gradle-${VER}-bin.zip" -o "$DIR/gradle.zip"; unzip -q "$DIR/gradle.zip" -d "$DIR"
   CMD="$DIR/gradle-$VER/bin/gradle"; echo "RECOVERY Missing gradlew; using Gradle $VER"
 else
-  VER="8.7"; DIR="$RUNNER_TEMP/repo2play-gradle-$VER"; rm -rf "$DIR"; mkdir -p "$DIR"
+  VER="8.9"; DIR="$RUNNER_TEMP/repo2play-gradle-$VER"; rm -rf "$DIR"; mkdir -p "$DIR"
   curl -fsSL --retry 3 "https://services.gradle.org/distributions/gradle-${VER}-bin.zip" -o "$DIR/gradle.zip"; unzip -q "$DIR/gradle.zip" -d "$DIR"
   CMD="$DIR/gradle-$VER/bin/gradle"; echo "RECOVERY No wrapper metadata; trying Gradle $VER"
 fi
