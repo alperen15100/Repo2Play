@@ -1,8 +1,11 @@
 {
-  "schema": 1,
-  "engine": "Repo2Play V10.1 Signed Engine",
-  "android": {
-    "target_sdk_baseline": 36,
-    "note": "Technical engine baseline. Google Play policy must be refreshed from authoritative sources before production claims."
+  "schema": 2,
+  "engine": "Repo2Play V11 Production Stage 1",
+  "last_verified": "2026-08-27",
+  "google_play": {
+    "mobile_new_and_updates_target_sdk": 36,
+    "effective_date": "2026-08-31",
+    "existing_app_discoverability_target_sdk": 35,
+    "note": "Wear OS, Android TV/XR and Automotive have different thresholds."
   }
 }

@@ -1,4 +1,4 @@
-name: Repo2Play V10.1 Signed Engine
+name: Repo2Play V11 Production Stage 1
 
 on:
   workflow_dispatch:
@@ -69,7 +69,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Repo2Play-V10.1-${{ inputs.build_mode }}-Result
+          name: Repo2Play-V11-${{ inputs.build_mode }}-Result
           path: output/
           if-no-files-found: warn
           retention-days: 7

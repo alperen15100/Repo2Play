@@ -6,7 +6,7 @@ OUTPUT="${1:?}"
 [ -f "$OUTPUT/app-release-signed.aab" ] || { echo "Signed AAB missing"; exit 1; }
 [ -f "$OUTPUT/SIGNING-INFO.txt" ] || { echo "Signing report missing"; exit 1; }
 
-rm -f "$OUTPUT/app-release-unsigned.apk" "$OUTPUT/app-release-aligned.apk" "$OUTPUT/app-release-unsigned.aab"
+rm -f "$OUTPUT/app-release-unsigned.apk" "$OUTPUT/app-release-aligned.apk" "$OUTPUT/app-release-unsigned.aab" "$OUTPUT/detect.env" "$OUTPUT/gradle.env"
 
 (
   cd "$OUTPUT"

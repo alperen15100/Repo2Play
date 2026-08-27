@@ -10,7 +10,7 @@ mkdir -p "$OUTPUT"
 
 REPORT="$OUTPUT/BUILD-REPORT.txt"
 {
-  echo "REPO2PLAY V10.1 SIGNED ENGINE"
+  echo "REPO2PLAY V11 PRODUCTION STAGE 1"
   echo "============================"
   echo "Repository: ${TARGET_REPOSITORY:-unknown}"
   echo "Branch: ${TARGET_BRANCH:-unknown}"
@@ -33,6 +33,8 @@ fail_report() {
 DETECT_OUT="$OUTPUT/detect.env"
 "$ENGINE/scripts/detect-project.sh" "$TARGET" "$DETECT_OUT" >> "$REPORT" 2>&1 || fail_report "Android application project could not be detected."
 source "$DETECT_OUT"
+
+python3 "$ENGINE/scripts/version.py" "$PROJECT_DIR" "$APP_MODULE" "${BUILD_MODE:-NEW}" "$OUTPUT/VERSION-INFO.json" >> "$REPORT" 2>&1 || fail_report "Version preparation failed."
 
 GRADLE_OUT="$OUTPUT/gradle.env"
 "$ENGINE/scripts/resolve-gradle.sh" "$PROJECT_DIR" "$GRADLE_OUT" >> "$REPORT" 2>&1 || fail_report "Compatible Gradle could not be prepared."

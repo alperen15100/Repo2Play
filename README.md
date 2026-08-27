@@ -1,44 +1,27 @@
-# Repo2Play V10.1 Signed Engine
+# Repo2Play V11 Production Stage 1
 
-This package extends V10 Clean Engine with release signing.
+Built on top of the working V10.1 signed engine.
 
-## What it does
-- Detects Android application project/module
-- Resolves Gradle wrapper or fallback Gradle
-- Builds release APK
-- Builds release AAB
-- Signs and verifies APK
-- Signs and verifies AAB
-- Produces Play preflight report
-- Packages results as GitHub Actions artifact
+## Deliberately preserved
+- Android project detection
+- Gradle recovery/build path
+- APK build
+- AAB build
+- APK signing + verification
+- AAB signing + verification
+- NEW/UPDATE signing model
 
-## NEW mode
-A new keystore is generated for the build and included in the artifact.
-Keep it safe if you need the same signing identity later.
+## Added
+- UPDATE versionCode auto-increment
+- versionName best-effort patch increment
+- VERSION-INFO.json
+- stronger Play Store technical preflight
+- API 36 mobile submission baseline warning for 2026-08-31
+- removal of internal detect/gradle env files from customer output
 
-## UPDATE mode
-Requires repository secrets:
-- APP_KEYSTORE_BASE64
-- SIGNING_KEY_ALIAS
-- SIGNING_STORE_PASSWORD
-- SIGNING_KEY_PASSWORD
-
-The same signing identity must be used for an existing app update.
-
-## Private target repo
-Add:
-- TARGET_REPO_TOKEN
-
-with read access to the target repository.
-
-## Output
-- app-release-signed.apk
-- app-release-signed.aab
-- BUILD-REPORT.txt
-- PLAY-REPORT.txt
-- SIGNING-INFO.txt
-- SHA256SUMS.txt
-- repo2play-upload.jks (NEW mode)
+## Safety
+`main` and tag `v10.1-golden` should remain untouched.
+Develop and test this package only on `v11-production`.
 
 ## Important
-A signed AAB is not by itself a guarantee that Google Play will accept an app. Package identity, versioning, policy declarations, app content, dependencies, target SDK, Data Safety and Play App Signing/update-key continuity can still matter.
+Google Play approval cannot be guaranteed automatically. App content, permissions, data safety disclosures, SDK behavior, account policy, Play App Signing and other Play Console requirements can still matter.
