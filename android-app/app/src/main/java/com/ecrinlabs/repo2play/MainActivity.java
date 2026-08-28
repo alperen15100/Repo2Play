@@ -411,7 +411,7 @@ public class MainActivity extends Activity {
                 // Check whether workflow already exists
                 // ----------------------------------
 
-                String sha=null;
+                String sha="";
 
                 URL checkUrl=new URL(
                     api+"?ref="+
