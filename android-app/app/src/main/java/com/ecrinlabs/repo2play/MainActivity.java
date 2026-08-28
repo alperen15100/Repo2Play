@@ -26,7 +26,9 @@ public class MainActivity extends Activity {
     private static final String ENGINE_REPO = "alperen15100/Repo2Play";
     private static final String ENGINE_REF = "v12-release";
     private static final String WORKFLOW = "repo2play.yml";
-    private static final String PRIVACY_URL = "https://alperen15100.github.io/Repo2Play/privacy.html";
+    private static final String PRIVACY_URL = "https://alperen15100.github.io/repo2play-legal/privacy.html";
+    private static final String TERMS_URL = "https://alperen15100.github.io/repo2play-legal/terms.html";
+    private static final String SUPPORT_URL = "https://alperen15100.github.io/repo2play-legal/support.html";
 
     private final int BG=Color.rgb(10,12,16);
     private final int SURFACE=Color.rgb(18,21,27);
@@ -195,7 +197,91 @@ public class MainActivity extends Activity {
             catch(Exception ignored){}
         });
 
-        TextView foot=t("Repo2Play • by Ecrin Labs",11,MUT,false);
+        Button termsBtn=secondary("TERMS OF USE");
+        privacy.addView(termsBtn,smallButtonParams());
+        termsBtn.setOnClickListener(v->{
+            try {
+                startActivity(
+                    new Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse(TERMS_URL)
+                    )
+                );
+            } catch(Exception ignored){}
+        });
+
+        Button supportBtn=secondary("SUPPORT");
+        privacy.addView(supportBtn,smallButtonParams());
+        supportBtn.setOnClickListener(v->{
+            try {
+                startActivity(
+                    new Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse(SUPPORT_URL)
+                    )
+                );
+            } catch(Exception ignored){}
+        });
+
+        Button clearBtn=secondary(
+            "CLEAR CREDENTIALS & SIGNING VAULT"
+        );
+
+        privacy.addView(
+            clearBtn,
+            smallButtonParams()
+        );
+
+        clearBtn.setOnClickListener(v->{
+
+            new AlertDialog.Builder(this)
+
+                .setTitle(
+                    "Clear local security data?"
+                )
+
+                .setMessage(
+                    "This removes the saved GitHub token " +
+                    "and all signing keys stored in the " +
+                    "Repo2Play Signing Vault. " +
+                    "Keep your original JKS backups before continuing."
+                )
+
+                .setNegativeButton(
+                    "Cancel",
+                    null
+                )
+
+                .setPositiveButton(
+                    "Clear",
+                    (dialog,which)->{
+
+                        secure.clearAll();
+
+                        token.setText("");
+
+                        accountLabel.setText(
+                            "Not connected"
+                        );
+
+                        accountLabel.setTextColor(
+                            MUT
+                        );
+
+                        vaultLabel.setText(
+                            "Signing Vault • No locally stored signing credentials."
+                        );
+
+                        setStatus(
+                            "Local GitHub credentials and Signing Vault data cleared."
+                        );
+                    }
+                )
+
+                .show();
+        });
+
+        TextView foot=t("Repo2Play v12.1 • by Ecrin Labs",11,MUT,false);
         foot.setGravity(Gravity.CENTER);
         foot.setPadding(0,d(22),0,0);
         page.addView(foot);

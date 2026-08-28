@@ -67,4 +67,8 @@ public final class SecureStore {
     public void remove(String name) {
         prefs.edit().remove(name + "_iv").remove(name + "_ct").apply();
     }
+
+    public void clearAll() {
+        prefs.edit().clear().apply();
+    }
 }

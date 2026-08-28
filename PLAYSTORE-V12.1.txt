@@ -1,0 +1,37 @@
+=======================================
+REPO2PLAY V12.1 — PLAY STORE FINAL
+=======================================
+
+Developer:
+Ecrin Labs
+
+Package:
+com.ecrinlabs.repo2play
+
+Version:
+12.1.0
+
+Version code:
+13
+
+Target SDK:
+36
+
+
+PLAY STORE LAYER
+
+✓ Public Privacy Policy
+✓ Terms of Use
+✓ Support
+✓ Clear Credentials
+✓ Clear Signing Vault
+✓ Data Safety worksheet
+✓ App Access instructions
+✓ Store listing
+✓ Release checklist
+
+
+IMPORTANT
+
+The proven Repo2Play NEW/UPDATE build engine
+was not modified by the V12.1 Play Store patch.

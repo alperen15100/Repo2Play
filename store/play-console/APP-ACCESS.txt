@@ -1,0 +1,24 @@
+REPO2PLAY — GOOGLE PLAY REVIEW ACCESS
+
+Repo2Play requires GitHub authentication for its
+core build functionality.
+
+Provide Google Play reviewers with a dedicated
+test GitHub credential and a dedicated test repository.
+
+DO NOT provide your primary personal GitHub token.
+
+Reviewer flow:
+
+1. Open Repo2Play.
+2. Enter the supplied GitHub test credential.
+3. Tap CONNECT SECURELY.
+4. Enter the supplied Android GitHub repository.
+5. Branch: main
+6. Select NEW.
+7. Tap BUILD RELEASE.
+8. Wait for GitHub Actions.
+9. Download the resulting release package.
+
+The review credential must remain functional during
+the entire review period.
