@@ -48,6 +48,7 @@ public class MainActivity extends Activity {
     private HistoryStore historyStore;
     private long currentRunId=0;
     private String currentArtifactUrl="", currentArtifactName="", currentRepo="";
+    private String manualUpdateRepo="";
     private static final int PICK_JKS=4101;
 
     @Override public void onCreate(Bundle b){
@@ -153,7 +154,7 @@ public class MainActivity extends Activity {
         newBtn.setOnClickListener(v->setMode("NEW"));
         updateBtn.setOnClickListener(v->setMode("UPDATE"));
 
-        vaultLabel=t("Signing Vault • NEW creates and secures a project signing key.",12,MUT,false);
+        vaultLabel=t("NEW creates a signing key. UPDATE requires the ORIGINAL JKS.",12,MUT,false);
         vaultLabel.setPadding(0,d(14),0,0);
         release.addView(vaultLabel);
 
@@ -299,7 +300,7 @@ public class MainActivity extends Activity {
                 .show();
         });
 
-        TextView foot=t("Repo2Play v13.2 • by Ecrin Labs",11,MUT,false);
+        TextView foot=t("Repo2Play v13.3 • by Ecrin Labs",11,MUT,false);
         foot.setGravity(Gravity.CENTER);
         foot.setPadding(0,d(22),0,0);
         page.addView(foot);
@@ -648,9 +649,25 @@ public class MainActivity extends Activity {
 
         String keystore="";
         if("UPDATE".equals(mode)){
+
+            if(!repo.equals(manualUpdateRepo)){
+                setStatus(
+                    "UPDATE LOCKED 🔒\n\n" +
+                    "Import the ORIGINAL JKS from the first NEW release before building this update.\n\n" +
+                    "Tap IMPORT ORIGINAL JKS."
+                );
+                return;
+            }
+
             keystore=secure.get(vaultName(repo));
+
             if(keystore.isEmpty()){
-                setStatus("UPDATE BLOCKED\n\nNo original signing key is stored for this project.\nImport the JKS from the original NEW release first.");
+                manualUpdateRepo="";
+                setStatus(
+                    "UPDATE LOCKED 🔒\n\n" +
+                    "The original signing key is not available.\n\n" +
+                    "Tap IMPORT ORIGINAL JKS and select the JKS from the original NEW release."
+                );
                 return;
             }
         }
@@ -932,8 +949,9 @@ public class MainActivity extends Activity {
                 while((n=in.read(b))>0) out.write(b,0,n);
                 String enc=Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP);
                 secure.put(vaultName(currentRepo),enc);
-                vaultLabel.setText("Signing Vault • Original key imported for "+currentRepo);
-                setStatus("✓ Signing key imported securely");
+                manualUpdateRepo=currentRepo;
+                vaultLabel.setText("✓ Original signing key imported for "+currentRepo);
+                setStatus("✓ ORIGINAL JKS READY\n\nUPDATE is now unlocked for this repository.");
             }catch(Exception e){ showError(e); }
         }
     }
