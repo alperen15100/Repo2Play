@@ -43,6 +43,7 @@ public class MainActivity extends Activity {
     private Button newBtn,updateBtn,actionBtn,connectBtn,importBtn,privacyBtn;
     private TextView status,history,accountLabel,vaultLabel;
     private String mode="NEW";
+    private String currentBuildMode="NEW";
     private SecureStore secure;
     private HistoryStore historyStore;
     private long currentRunId=0;
@@ -298,7 +299,7 @@ public class MainActivity extends Activity {
                 .show();
         });
 
-        TextView foot=t("Repo2Play v13.1 • by Ecrin Labs",11,MUT,false);
+        TextView foot=t("Repo2Play v13.2 • by Ecrin Labs",11,MUT,false);
         foot.setGravity(Gravity.CENTER);
         foot.setPadding(0,d(22),0,0);
         page.addView(foot);
@@ -655,6 +656,7 @@ public class MainActivity extends Activity {
         }
 
         currentRepo=repo;
+        currentBuildMode=mode;
         getPreferences(MODE_PRIVATE).edit()
                 .putString("last_repo",repo)
                 .putString("last_branch",br)
@@ -730,7 +732,7 @@ public class MainActivity extends Activity {
 
             if("completed".equals(st)){
                 if(!"success".equals(con)){
-                    historyStore.add(repo,mode,"FAILED",id);
+                    historyStore.add(repo,currentBuildMode,"FAILED",id);
                     runOnUiThread(this::refreshHistory);
                     throw new Exception("Build failed on GitHub Actions. Run #"+id);
                 }
@@ -749,9 +751,36 @@ public class MainActivity extends Activity {
         long aid=artifact.getLong("id");
         currentArtifactUrl="https://api.github.com/repos/"+repo+"/actions/artifacts/"+aid+"/zip";
 
-        historyStore.add(repo,mode,"SUCCESS",id);
+        if("NEW".equals(currentBuildMode)){
+            try{
+                String savedKey=downloadSigningKey(
+                    tok,
+                    currentArtifactUrl
+                );
+
+                if(!savedKey.isEmpty()){
+                    secure.put(
+                        vaultName(repo),
+                        savedKey
+                    );
+                }
+
+            }catch(Exception ignored){}
+        }
+
+        historyStore.add(repo,currentBuildMode,"SUCCESS",id);
         runOnUiThread(()->{
             refreshHistory();
+
+            if("NEW".equals(currentBuildMode) &&
+               !secure.get(vaultName(repo)).isEmpty()){
+
+                vaultLabel.setText(
+                    "Signing Vault • Original key secured for "+
+                    repo
+                );
+            }
+
             setStatus("✓ RELEASE READY\n\n"+currentArtifactName+
                     "\n\nSigned APK\nPlay Store AAB\nSigning key backup\nBuild reports");
             actionBtn.setText("DOWNLOAD RELEASE");
@@ -759,6 +788,59 @@ public class MainActivity extends Activity {
             actionBtn.setOnClickListener(v->downloadResult());
         });
     }
+
+
+    private String downloadSigningKey(
+        String tok,
+        String artifactUrl
+    ) throws Exception {
+
+        HttpURLConnection first=
+            req(artifactUrl,tok);
+
+        first.setInstanceFollowRedirects(false);
+
+        int code=first.getResponseCode();
+        String loc=first.getHeaderField("Location");
+
+        first.disconnect();
+
+        if(code/100!=3 || loc==null){
+            return "";
+        }
+
+        HttpURLConnection dl=
+            (HttpURLConnection)
+            new URL(loc).openConnection();
+
+        dl.setConnectTimeout(20000);
+        dl.setReadTimeout(60000);
+
+        File tmp=new File(
+            getCacheDir(),
+            "signing-"+System.currentTimeMillis()+".zip"
+        );
+
+        try(
+            InputStream in=dl.getInputStream();
+            OutputStream out=new FileOutputStream(tmp)
+        ){
+            byte[] buf=new byte[8192];
+            int n;
+
+            while((n=in.read(buf))>0){
+                out.write(buf,0,n);
+            }
+        }
+
+        dl.disconnect();
+
+        String key=extractKeystoreBase64(tmp);
+        tmp.delete();
+
+        return key;
+    }
+
 
     private void downloadResult(){
         String tok=secure.get("github_token");
@@ -790,15 +872,35 @@ public class MainActivity extends Activity {
                 }
                 dl.disconnect();
 
-                if("NEW".equals(mode)){
-                    String key=extractKeystoreBase64(tmp);
-                    if(!key.isEmpty()) secure.put(vaultName(currentRepo),key);
+                String key=extractKeystoreBase64(tmp);
+
+                if(!key.isEmpty() && !currentRepo.isEmpty()){
+                    secure.put(
+                        vaultName(currentRepo),
+                        key
+                    );
                 }
+
+                final boolean keyStored=
+                    !currentRepo.isEmpty() &&
+                    !secure.get(
+                        vaultName(currentRepo)
+                    ).isEmpty();
 
                 saveToDownloads(tmp,currentArtifactName+".zip");
 
                 runOnUiThread(()->{
-                    vaultLabel.setText("Signing Vault • Original key secured for "+currentRepo);
+
+                    if(keyStored){
+                        vaultLabel.setText(
+                            "Signing Vault • Original key secured for "+
+                            currentRepo
+                        );
+                    }else{
+                        vaultLabel.setText(
+                            "Signing Vault • No project signing key stored."
+                        );
+                    }
                     setStatus("✓ DOWNLOAD COMPLETE\n\nDownloads/"+currentArtifactName+".zip\n\nKeep the ZIP backup safe for future updates.");
                     resetAction();
                 });
