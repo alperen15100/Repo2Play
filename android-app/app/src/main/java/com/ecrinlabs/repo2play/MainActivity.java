@@ -93,6 +93,12 @@ public class MainActivity extends Activity {
         intro.setPadding(0,d(24),0,d(16));
         page.addView(intro);
 
+        Button helpBtn=secondary("HOW TO USE • STEP BY STEP");
+        page.addView(helpBtn,smallButtonParams());
+        helpBtn.setOnClickListener(v->
+            startActivity(new Intent(this,HelpActivity.class))
+        );
+
         // GitHub card
         LinearLayout auth=card();
         page.addView(auth);
@@ -281,7 +287,7 @@ public class MainActivity extends Activity {
                 .show();
         });
 
-        TextView foot=t("Repo2Play v12.1 • by Ecrin Labs",11,MUT,false);
+        TextView foot=t("Repo2Play v12.2 • by Ecrin Labs",11,MUT,false);
         foot.setGravity(Gravity.CENTER);
         foot.setPadding(0,d(22),0,0);
         page.addView(foot);
