@@ -287,7 +287,7 @@ public class MainActivity extends Activity {
                 .show();
         });
 
-        TextView foot=t("Repo2Play v12.2 • by Ecrin Labs",11,MUT,false);
+        TextView foot=t("Repo2Play v13.0 • by Ecrin Labs",11,MUT,false);
         foot.setGravity(Gravity.CENTER);
         foot.setPadding(0,d(22),0,0);
         page.addView(foot);

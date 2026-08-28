@@ -10,8 +10,8 @@ android {
         applicationId = "com.ecrinlabs.repo2play"
         minSdk = 26
         targetSdk = 36
-        versionCode = 14
-        versionName = "12.2.0"
+        versionCode = 16
+        versionName = "13.0.0"
     }
 
     signingConfigs {
