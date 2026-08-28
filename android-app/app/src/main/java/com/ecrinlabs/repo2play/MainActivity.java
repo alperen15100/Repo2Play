@@ -160,6 +160,17 @@ public class MainActivity extends Activity {
         release.addView(importBtn,smallButtonParams());
         importBtn.setOnClickListener(v->pickKey());
 
+        Button installEngineBtn=secondary("INSTALL BUILD ENGINE");
+        release.addView(installEngineBtn,smallButtonParams());
+        installEngineBtn.setOnClickListener(v->installBuildEngine());
+
+        TextView engineInfo=t(
+            "Install the Repo2Play workflow into this repository before the first build.",
+            11,MUT,false
+        );
+        engineInfo.setPadding(0,d(6),0,0);
+        release.addView(engineInfo);
+
         actionBtn=primary("BUILD RELEASE");
         release.addView(actionBtn,buttonParams());
         actionBtn.setOnClickListener(v->dispatch());
@@ -310,6 +321,294 @@ public class MainActivity extends Activity {
                     setStatus("✓ GitHub connected\nCredentials encrypted with Android Keystore.");
                 });
             }catch(Exception e){ showError(e); }
+        }).start();
+    }
+
+
+    private void installBuildEngine(){
+        hideKeyboard();
+
+        String tok=secure.get("github_token");
+        if(tok.isEmpty()) tok=token.getText().toString().trim();
+
+        String repo=normalizeRepo(target.getText().toString());
+        String br=branch.getText().toString().trim();
+
+        if(tok.length()<10){
+            token.setError("Connect GitHub first");
+            return;
+        }
+
+        if(repo==null){
+            target.setError("Paste a GitHub repo link or owner/repository");
+            return;
+        }
+
+        if(br.isEmpty()){
+            branch.setError("Branch required");
+            return;
+        }
+
+        setStatus(
+            "Installing Repo2Play Build Engine...\n\n"+
+            repo+"\nBranch: "+br
+        );
+
+        final String finalTok=tok;
+        final String finalRepo=repo;
+        final String finalBranch=br;
+
+        new Thread(()->{
+            HttpURLConnection c=null;
+
+            try{
+                String workflow=
+                    "name: Repo2Play Build\n"+
+                    "\n"+
+                    "on:\n"+
+                    "  workflow_dispatch:\n"+
+                    "    inputs:\n"+
+                    "      build_mode:\n"+
+                    "        description: Build mode\n"+
+                    "        required: true\n"+
+                    "        default: NEW\n"+
+                    "        type: choice\n"+
+                    "        options:\n"+
+                    "          - NEW\n"+
+                    "          - UPDATE\n"+
+                    "\n"+
+                    "permissions:\n"+
+                    "  contents: read\n"+
+                    "\n"+
+                    "jobs:\n"+
+                    "  repo2play:\n"+
+                    "    name: Repo2Play Build\n"+
+                    "    runs-on: ubuntu-latest\n"+
+                    "\n"+
+                    "    steps:\n"+
+                    "      - name: Checkout repository\n"+
+                    "        uses: actions/checkout@v4\n"+
+                    "\n"+
+                    "      - name: Set up Java 17\n"+
+                    "        uses: actions/setup-java@v4\n"+
+                    "        with:\n"+
+                    "          distribution: temurin\n"+
+                    "          java-version: '17'\n"+
+                    "\n"+
+                    "      - name: Verify Repo2Play engine\n"+
+                    "        run: |\n"+
+                    "          echo \"Repo2Play Build Engine installed\"\n"+
+                    "          echo \"Repository: ${{ github.repository }}\"\n"+
+                    "          echo \"Branch: ${{ github.ref_name }}\"\n"+
+                    "          echo \"Mode: ${{ inputs.build_mode }}\"\n";
+
+                String api=
+                    "https://api.github.com/repos/"+
+                    finalRepo+
+                    "/contents/.github/workflows/repo2play-build.yml";
+
+                // ----------------------------------
+                // Check whether workflow already exists
+                // ----------------------------------
+
+                String sha=null;
+
+                URL checkUrl=new URL(
+                    api+"?ref="+
+                    URLEncoder.encode(finalBranch,"UTF-8")
+                );
+
+                c=(HttpURLConnection)checkUrl.openConnection();
+                c.setRequestMethod("GET");
+                c.setRequestProperty(
+                    "Authorization",
+                    "Bearer "+finalTok
+                );
+                c.setRequestProperty(
+                    "Accept",
+                    "application/vnd.github+json"
+                );
+                c.setRequestProperty(
+                    "X-GitHub-Api-Version",
+                    "2022-11-28"
+                );
+                c.setConnectTimeout(20000);
+                c.setReadTimeout(20000);
+
+                int checkCode=c.getResponseCode();
+
+                if(checkCode==200){
+                    BufferedReader r=new BufferedReader(
+                        new InputStreamReader(c.getInputStream())
+                    );
+
+                    StringBuilder out=new StringBuilder();
+                    String line;
+
+                    while((line=r.readLine())!=null){
+                        out.append(line);
+                    }
+
+                    r.close();
+
+                    JSONObject existing=
+                        new JSONObject(out.toString());
+
+                    sha=existing.optString("sha","");
+                }
+
+                c.disconnect();
+
+                // ----------------------------------
+                // Create / update workflow
+                // ----------------------------------
+
+                URL putUrl=new URL(api);
+
+                c=(HttpURLConnection)putUrl.openConnection();
+                c.setRequestMethod("PUT");
+                c.setDoOutput(true);
+
+                c.setRequestProperty(
+                    "Authorization",
+                    "Bearer "+finalTok
+                );
+
+                c.setRequestProperty(
+                    "Accept",
+                    "application/vnd.github+json"
+                );
+
+                c.setRequestProperty(
+                    "X-GitHub-Api-Version",
+                    "2022-11-28"
+                );
+
+                c.setRequestProperty(
+                    "Content-Type",
+                    "application/json"
+                );
+
+                c.setConnectTimeout(20000);
+                c.setReadTimeout(20000);
+
+                JSONObject body=new JSONObject();
+
+                body.put(
+                    "message",
+                    sha.isEmpty()
+                        ? "Install Repo2Play Build Engine"
+                        : "Update Repo2Play Build Engine"
+                );
+
+                body.put(
+                    "content",
+                    Base64.encodeToString(
+                        workflow.getBytes(StandardCharsets.UTF_8),
+                        Base64.NO_WRAP
+                    )
+                );
+
+                body.put("branch",finalBranch);
+
+                if(!sha.isEmpty()){
+                    body.put("sha",sha);
+                }
+
+                byte[] bytes=
+                    body.toString().getBytes(
+                        StandardCharsets.UTF_8
+                    );
+
+                OutputStream os=c.getOutputStream();
+                os.write(bytes);
+                os.flush();
+                os.close();
+
+                int code=c.getResponseCode();
+
+                if(code==200 || code==201){
+
+                    runOnUiThread(()->{
+                        setStatus(
+                            "✓ BUILD ENGINE INSTALLED\n\n"+
+                            finalRepo+
+                            "\nBranch: "+finalBranch+
+                            "\n\n.github/workflows/"+
+                            "repo2play-build.yml"
+                        );
+
+                        Toast.makeText(
+                            this,
+                            "Build Engine installed",
+                            Toast.LENGTH_LONG
+                        ).show();
+                    });
+
+                }else{
+
+                    InputStream err=c.getErrorStream();
+                    String message="GitHub HTTP "+code;
+
+                    if(err!=null){
+                        BufferedReader r=new BufferedReader(
+                            new InputStreamReader(err)
+                        );
+
+                        StringBuilder out=
+                            new StringBuilder();
+
+                        String line;
+
+                        while((line=r.readLine())!=null){
+                            out.append(line);
+                        }
+
+                        r.close();
+
+                        try{
+                            JSONObject j=
+                                new JSONObject(out.toString());
+
+                            String gm=
+                                j.optString("message","");
+
+                            if(!gm.isEmpty()){
+                                message+="\n"+gm;
+                            }
+
+                        }catch(Exception ignored){}
+                    }
+
+                    final String msg=message;
+
+                    runOnUiThread(()->{
+                        setStatus(
+                            "BUILD ENGINE INSTALL FAILED\n\n"+
+                            msg+
+                            "\n\nCheck repository access, "+
+                            "token permissions and branch."
+                        );
+                    });
+                }
+
+            }catch(Exception e){
+
+                final String msg=
+                    e.getMessage()==null
+                        ? e.getClass().getSimpleName()
+                        : e.getMessage();
+
+                runOnUiThread(()->{
+                    setStatus(
+                        "BUILD ENGINE INSTALL FAILED\n\n"+
+                        msg
+                    );
+                });
+
+            }finally{
+                if(c!=null)c.disconnect();
+            }
         }).start();
     }
 
