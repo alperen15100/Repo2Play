@@ -700,17 +700,15 @@ public class MainActivity extends Activity {
         new Thread(()->{
             try{
                 JSONObject body=new JSONObject();
-                body.put("ref",ENGINE_REF);
+                body.put("ref",br);
                 JSONObject in=new JSONObject();
-                in.put("repository",repo);
-                in.put("branch",br);
                 in.put("build_mode",mode);
                 in.put("keystore_base64",finalKey);
                 body.put("inputs",in);
 
                 // Important: same API version behavior used by the previously working V11 Android client.
                 JSONObject res=post(
-                        "https://api.github.com/repos/"+ENGINE_REPO+"/actions/workflows/"+WORKFLOW+"/dispatches",
+                        "https://api.github.com/repos/"+repo+"/actions/workflows/repo2play-build.yml/dispatches",
                         finalTok,
                         body.toString()
                 );
@@ -718,7 +716,7 @@ public class MainActivity extends Activity {
                 long id=res.optLong("workflow_run_id",0);
                 if(id==0){
                     // Compatibility fallback: find the newest manually-dispatched matching workflow run.
-                    id=findNewestWorkflowRun(finalTok);
+                    id=findNewestWorkflowRun(finalTok,repo,br);
                 }
                 if(id==0) throw new Exception("GitHub started the workflow, but Repo2Play could not identify the run.");
 
@@ -736,10 +734,10 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private long findNewestWorkflowRun(String tok)throws Exception{
+    private long findNewestWorkflowRun(String tok,String repo,String br)throws Exception{
         Thread.sleep(1500);
-        JSONObject j=get("https://api.github.com/repos/"+ENGINE_REPO+
-                "/actions/workflows/"+WORKFLOW+"/runs?event=workflow_dispatch&branch="+URLEncoder.encode(ENGINE_REF,"UTF-8")+"&per_page=5",tok);
+        JSONObject j=get("https://api.github.com/repos/"+repo+
+                "/actions/workflows/repo2play-build.yml/runs?event=workflow_dispatch&branch="+URLEncoder.encode(br,"UTF-8")+"&per_page=5",tok);
         JSONArray a=j.optJSONArray("workflow_runs");
         if(a==null||a.length()==0)return 0;
         for(int i=0;i<a.length();i++){
@@ -750,7 +748,7 @@ public class MainActivity extends Activity {
     }
 
     private void poll(String tok,long id,String repo)throws Exception{
-        String url="https://api.github.com/repos/"+ENGINE_REPO+"/actions/runs/"+id;
+        String url="https://api.github.com/repos/"+repo+"/actions/runs/"+id;
         while(true){
             JSONObject j=get(url,tok);
             String st=j.optString("status"), con=j.optString("conclusion");
@@ -771,7 +769,7 @@ public class MainActivity extends Activity {
             Thread.sleep(5000);
         }
 
-        JSONObject a=get("https://api.github.com/repos/"+ENGINE_REPO+"/actions/runs/"+id+"/artifacts",tok);
+        JSONObject a=get("https://api.github.com/repos/"+repo+"/actions/runs/"+id+"/artifacts",tok);
         JSONArray arr=a.optJSONArray("artifacts");
         if(arr==null||arr.length()==0)
             throw new Exception("Build completed, but no release package was produced.");
@@ -779,7 +777,7 @@ public class MainActivity extends Activity {
         JSONObject artifact=arr.getJSONObject(0);
         currentArtifactName=artifact.optString("name","Repo2Play-Result");
         long aid=artifact.getLong("id");
-        currentArtifactUrl="https://api.github.com/repos/"+ENGINE_REPO+"/actions/artifacts/"+aid+"/zip";
+        currentArtifactUrl="https://api.github.com/repos/"+repo+"/actions/artifacts/"+aid+"/zip";
 
         historyStore.add(repo,mode,"SUCCESS",id);
         runOnUiThread(()->{
